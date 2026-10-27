@@ -1,0 +1,63 @@
+# .gitignore — this repository ships compiled modules only.
+# Every importable module is compiled to .so; its .py source lives in the
+# private tree and must never reappear here.
+
+# The 26 shipped modules (source form)
+/browser_ports.py
+/browser_session.py
+/doctor.py
+/dossier.py
+/greysearch_mcp.py
+/greysearch_publisher.py
+/greysearch_site_builder.py
+/guide_scrub.py
+/keys.py
+/llm_audit.py
+/page_clean.py
+/patchright_headless.py
+/patchright_scraper.py
+/pdf_export.py
+/photos.py
+/pipeline_sites.py
+/portal_server.py
+/relevance.py
+/research.py
+/research_injection.py
+/research_integration.py
+/searx_fallback.py
+/searxng_integrated.py
+/site_guardrails.py
+/site_render.py
+/tuning.py
+
+# Nested module sources
+/llm/oneshot.py
+
+# Build intermediates
+*.c
+build/
+/cython-build/
+__pycache__/
+*.pyc
+*.pyo
+
+# the venv install.sh creates
+/.venv/
+
+# Run artifacts and local state
+/guides/
+/sites/
+/pages/
+/models/
+/out/
+/research/task-registry.json
+/research/engine-status.json
+*.log
+
+# Local configuration and secrets
+.env
+.env.*
+*.local
+
+# Temporary runtime files
+/portal.pid

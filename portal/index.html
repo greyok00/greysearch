@@ -1,0 +1,677 @@
+<!doctype html>
+<html lang="en" data-theme="master">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Greysearch</title>
+<link rel="stylesheet" href="/kit/theme.css">
+<link rel="stylesheet" href="/assets/screens.css">
+<style>
+  :root { font-size: 16px; }
+  body { background: var(--el-bg, #0b0c0e); color: var(--el-ink, #f3efe6);
+         margin: 0; font-family: system-ui, sans-serif; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 14vh 20px 60px; }
+  .brand { font-size: 2.2rem; font-weight: 600; letter-spacing: .02em;
+           text-align: center; color: var(--el-ink); }
+  .brand span { color: var(--el-accent, #c9a84c); }
+  .tag { text-align: center; color: var(--el-ink-soft, #8b9aaa);
+         margin: 6px 0 34px; font-size: .95rem; }
+  .box { display: flex; gap: 10px; }
+  .box input { flex: 1; background: var(--el-panel, #161a21);
+               border: 1px solid var(--el-line, #2a323d); color: var(--el-ink);
+               border-radius: 10px; padding: 14px 18px; font-size: 1.05rem;
+               outline: none; }
+  .box input:focus { border-color: var(--el-accent, #c9a84c); }
+  .box button { background: var(--el-accent, #c9a84c); color: var(--el-on-accent, #0d1015);
+                border: 0; border-radius: 10px; padding: 14px 22px; font-weight: 600;
+                cursor: pointer; font-size: 1.02rem; }
+  .box button:disabled { opacity: .55; cursor: default; }
+  .dep { background: var(--el-panel, #161a21); color: var(--el-ink-soft);
+         border: 1px solid var(--el-line); border-radius: 8px;
+         padding: 6px 14px; font-size: .85rem; cursor: pointer; }
+  .dep.sel { background: var(--el-accent); color: var(--el-on-accent);
+             border-color: var(--el-accent); font-weight: 600; }
+  .progress { margin-top: 44px; display: none; }
+  .track { height: 8px; background: var(--el-panel-2, #1c2128); border-radius: 6px;
+           overflow: hidden; }
+  .fill { height: 100%; width: 4%; background: var(--el-accent, #c9a84c);
+          transition: width .6s ease; }
+  .fill.working { animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: .65; } 50% { opacity: 1; } }
+  .stage { margin-top: 12px; color: var(--el-ink-soft, #8b9aaa); font-size: .92rem;
+           min-height: 1.3em; white-space: pre-line; }
+  .results { margin-top: 44px; display: none; }
+  .brief { background: var(--el-panel, #161a21); border: 1px solid var(--el-line);
+           border-radius: 12px; padding: 18px 20px; line-height: 1.55;
+           white-space: pre-line; }
+  .src { color: var(--el-ink-soft); font-size: .88rem; margin-top: 10px;
+         display: block; }
+  ul.srcs { margin: 14px 0 0 0; padding-left: 18px; color: var(--el-ink-soft);
+            font-size: .9rem; }
+  a { color: var(--el-accent); text-decoration: none; }
+  .err { color: var(--el-fail, #d06a5a); margin-top: 12px; font-size: .95rem; }
+  .hist { margin-top: 20px; display: none; }
+  .hhead { color: var(--el-ink-soft); font-size: .8rem; margin-bottom: 6px;
+           display: flex; align-items: center; }
+  .hhead button { margin-left: auto; background: none;
+                  color: var(--el-ink-soft); border: 1px solid var(--el-line);
+                  border-radius: 6px; font-size: .72rem; padding: 3px 8px;
+                  cursor: pointer; }
+  .hitem { padding: 7px 10px; border-radius: 7px; cursor: pointer;
+           color: var(--el-ink-soft); font-size: .92rem; }
+  .hitem:hover { background: var(--el-panel-2); color: var(--el-ink); }
+  .imgs { display: flex; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
+  .rtsrc { background: var(--el-panel); border: 1px solid var(--el-line);
+           border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
+  .rtsrc h4 { margin: 0 0 6px; font-size: .95rem; color: var(--el-ink); }
+  .rtsrc p { margin: 0 0 8px; font-size: .9rem; line-height: 1.5;
+             color: var(--el-ink-soft); }
+  .imgc { width: 150px; cursor: pointer; }
+  .imgc img { width: 150px; height: 100px; object-fit: cover;
+              border: 2px solid var(--el-line); border-radius: 8px; }
+  .imgc.sel img { border-color: var(--el-accent); }
+  .imgc small { display: block; color: var(--el-ink-soft);
+                font-size: .72rem; margin-top: 4px; line-height: 1.25; }
+  .row { display: flex; gap: 10px; align-items: center; margin-top: 16px; }
+  select { background: var(--el-panel); color: var(--el-ink);
+           border: 1px solid var(--el-line); border-radius: 8px; padding: 8px; }
+  .bbtn { margin-left: auto;
+          background: var(--el-accent, #c9a84c); color: var(--el-on-accent, #0d1015);
+          border: 0; border-radius: 10px; padding: 10px 18px; font-weight: 600;
+          cursor: pointer; font-size: .98rem;
+          transition: background .2s ease, transform .15s ease; }
+  .bbtn:hover { background: var(--el-accent-hover, #e0c26a); }
+  .bbtn:active { transform: scale(.97); }
+  .bbtn:disabled { opacity: .55; cursor: default; }
+  /* QA pass-1 mobile fix: the flex search row overflowed the 390px viewport
+     (input min-width:auto cannot shrink; Research button clipped off-screen
+     with a horizontal scrollbar). Stack the row on small screens and let
+     the input shrink at every width; tier row may wrap on cramp. */
+  .box input { min-width: 0; }
+  @media (max-width: 520px){
+    .box { flex-direction: column; }
+    .box button { width: 100%; }
+    .depth-row { flex-wrap: wrap; }
+    .dep { white-space: nowrap; }
+    .hhead { flex-wrap: wrap; gap: 6px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">Grey<span>search</span></div>
+  <div class="tag">Search any topic. You get a complete, fully sourced research guide.</div>
+  <form class="box" id="f">
+    <input id="q" autofocus autocomplete="off"
+           placeholder="What would you like to research?">
+    <button id="go" type="submit">Research</button>
+  </form>
+  <div class="depth-row" style="margin-top:12px;display:flex;justify-content:center;gap:6px">
+    <span style="color:var(--el-ink-soft);font-size:.85rem;align-self:center;margin-right:6px">Report length:</span>
+    <button type="button" class="dep" data-len="brief">Brief</button>
+    <button type="button" class="dep sel" data-len="standard">Standard</button>
+    <button type="button" class="dep" data-len="deep">Deep</button>
+    <button type="button" class="dep" data-len="report">Full Report</button>
+  </div>
+  <div class="hist" id="hist">
+    <div class="hhead">Recent searches
+      <button id="clearhist">Clear history</button></div>
+    <div id="histitems"></div>
+  </div>
+  <div class="progress" id="prog">
+    <div class="track"><div class="fill" id="fill"></div></div>
+    <div class="stage" id="stage">starting…</div>
+    <div class="err" id="err"></div>
+  </div>
+  <div class="results" id="res">
+    <div class="brief" id="brief">…</div>
+    <div class="src" id="path"></div>
+    <ul class="srcs" id="srcs"></ul>
+    <div id="researchtext" style="display:none;margin-top:18px"></div>
+    <div style="margin-top:20px">
+      <div style="color:var(--el-ink-soft);font-size:.9rem;margin-bottom:6px">
+        Narrow the scope, or tell it what to write from this research:</div>
+      <div class="box">
+        <input id="refineq" autocomplete="off"
+               placeholder="e.g. focus only on enterprise defense; make it a PhD-level summary">
+        <button id="refinego" type="button">Refine</button>
+      </div>
+      <div id="refineout" class="brief" style="display:none;margin-top:10px"></div>
+    </div>
+    <div class="row"><span style="color:var(--el-ink-soft);font-size:.9rem">
+      Pick images (optional):</span></div>
+    <div class="imgs" id="imgs"></div>
+    <div class="row">
+      <label style="color:var(--el-ink-soft);font-size:.9rem">Theme:
+        <select id="theme"><option value="master">Master</option><option value="neutral">Neutral</option><option value="polaroid">Polaroid</option><option value="cockpit">Cockpit</option><option value="cockpit-paper">Cockpit-paper</option><option value="console">Console</option><option value="compact">Compact</option><option value="casebook">Casebook</option><option value="agent-paper">Agent-paper</option><option value="agent-history">Agent-history</option><option value="agent-pulse">Agent-pulse</option><option value="aurora">Aurora</option><option value="bespoke">Bespoke</option><option value="swiss">Swiss</option><option value="terminal">Terminal</option><option value="torque">Torque</option><option value="umami">Umami</option></select></label>
+      <button id="build" class="bbtn" type="button">Build the site</button>
+    </div>
+    <div class="src" id="built"></div>
+  </div>
+</div>
+<script>
+let runId = null, lastRunId = null;
+const $ = id => document.getElementById(id);
+let selectedMeta = [], pickSet = new Set();
+
+/* ---- untrusted-field rendering contract (GS-01) -----------------------
+   Research results echo third-party web content: source URLs, page
+   titles, image metadata, and the synthesized guide text are all
+   potentially attacker-controlled. Every sink that receives them
+   builds elements with DOM APIs and assigns TEXT with textContent —
+   a text node cannot execute script, whatever it contains.
+   Intentional-HTML exception: liteMd() below is the one sanctioned
+   markup renderer (it escapes & and < before any wrapping). */
+const HTTP_URL = /^https?:\/\//i;   /* allowlist for link hrefs */
+function linkEl(url) {
+  const a = document.createElement("a");
+  const u = String(url || "");
+  if (HTTP_URL.test(u)) {           /* protocol-checked; DOM assignment */
+    a.href = u;                     /* cannot inject attributes */
+    a.target = "_blank"; a.rel = "noopener";
+    a.textContent = u;
+  } else {
+    a.textContent = u;              /* refused scheme: plain text */
+  }
+  return a;
+}
+/* local site paths come from the backend too: keep only a guides/ tail
+   with sane segments, then URL-encode each segment on the way into an href */
+function safePath(f) {
+  const t = String(f || "").replace(/^.*guides\//, "");
+  if (!t || t.split("/").some(s => !s || s === "." || s === "..")) return "";
+  return t;
+}
+const encPath = t => t.split("/").map(encodeURIComponent).join("/");
+/* one image card builder shared by loadResult and the refine grid */
+function imgCard(c, i, label) {
+  const d = document.createElement("div");
+  d.className = "imgc";
+  const tail = safePath(c.file);
+  if (tail) {
+    const im = document.createElement("img");
+    im.alt = "";
+    im.src = "/imgcand/" + encPath(tail);
+    d.appendChild(im);
+  }
+  const sm = document.createElement("small");
+  sm.textContent = (label ? "para " + (c.para + 1) + ": " : "") + (c.title || "");
+  if (c.license) {
+    sm.appendChild(document.createElement("br"));
+    sm.appendChild(document.createTextNode(c.license));
+  }
+  d.appendChild(sm);
+  d.onclick = () => {
+    (window.__pick || pickSet).has(i) ? (window.__pick || pickSet).delete(i)
+                                      : (window.__pick || pickSet).add(i);
+    d.classList.toggle("sel");
+  };
+  return d;
+}
+function anchorEl(href, label, download) {
+  const a = document.createElement("a");
+  a.href = href; a.textContent = label;
+  if (download) a.setAttribute("download", "");
+  else { a.target = "_blank"; a.rel = "noopener"; }
+  return a;
+}
+
+function estFill(stage, d) {
+  if (stage === "start") return 8;
+  if (stage === "search_done") return 30;
+  if (stage === "scraped") return 45 + Math.min(30, (d.n || 1) * 6);
+  if (stage === "judged") return 78 + Math.min(10, (d.accepted_so_far || 0));
+  if (stage === "audit") return 90;
+  if (stage === "guide") return 97;
+  return 4;
+}
+function show(s) { $("stage").textContent = s; }
+
+/* ---- visible, clearable history ---- */
+let _length = "standard";
+document.querySelectorAll(".dep").forEach(b => {
+  b.addEventListener("click", () => {
+    document.querySelectorAll(".dep").forEach(x => x.classList.remove("sel"));
+    b.classList.add("sel");
+    _length = b.dataset.len;
+  });
+});
+const HKEY = "greysearch-history";
+function getHist() {
+  try { return JSON.parse(localStorage.getItem(HKEY) || "[]"); }
+  catch (e) { return []; }
+}
+function addHist(q) {
+  const h = [q, ...getHist().filter(x => x !== q)].slice(0, 10);
+  localStorage.setItem(HKEY, JSON.stringify(h));
+  renderHist();
+}
+
+/* QA pass-2 (2026-10-23): CONFIRMED XSS — a query like "<img src=x
+   onerror=...>" executed via innerHTML when history rendered (live test:
+   a sentry flag flipped). Built with DOM APIs now: textContent can not
+   execute, whatever the query contains. */
+function renderHist() {
+  const h = getHist();
+  const box = $("hist");
+  const items = document.getElementById("histitems");
+  if (!items) return;
+  if (!h.length) { box.style.display = "none"; return; }
+  box.style.display = "block";
+  items.innerHTML = "";
+  h.forEach(q => {
+    const el = document.createElement("div");
+    el.className = "hitem";
+    el.textContent = q;
+    el.addEventListener("click", () => {
+      $("q").value = q;
+      $("f").dispatchEvent(new Event("submit"));
+    });
+    items.appendChild(el);
+  });
+}
+$("clearhist").addEventListener("click", () => {
+  localStorage.removeItem(HKEY);
+  renderHist();
+});
+renderHist();
+
+/* SSE can die silently (idle drop). A 5s poll is the safety net: when the
+   server says the run is done, the page catches up even without SSE. */
+setInterval(async () => {
+  if (!window.__poll_id) return;
+  try {
+    let resp;
+    try { resp = await fetch("/api/run/" + window.__poll_id); }
+    catch (e) { return; }
+    if (resp.status === 404) {
+      window.__poll_id = null;
+      runId = null;
+      show("");
+      $("go").disabled = false;
+      return;
+    }
+    const j = await resp.json();
+    if (j.status === "done") {
+      lastRunId = window.__poll_id;
+      window.__poll_id = null;
+      runId = null;
+      document.querySelector(".fill").classList.remove("working");
+      $("fill").style.width = "100%";
+      show("Guide finished.");
+      $("go").disabled = false;
+      loadResult();
+    } else if (j.status === "error") {
+      show("Run failed.");
+      $("err").textContent = "This run did not finish. Try again.";
+      $("go").disabled = false;
+      window.__poll_id = null;
+    }
+  } catch (e) {}
+}, 5000);
+
+/* ---- run reattach (ONE copy; QA pass-2 consolidation) -----------------
+   Three identical inline copies used to fire concurrently on load,
+   racing one another over the screens state machine. One shared
+   async function owns the reattach: an in-flight run -> live stream
+   + poll; a done run -> results (unless a fresh submit holds it).
+   The submit handler keeps its own POST + stream path. */
+window.__grAttachLatest = async function () {
+  try {
+    const r = await fetch("/api/latest");
+    const j = await r.json();
+    if (!j.exists) return;
+    if (j.status === "running") {
+      runId = j.run_id;
+      window.__poll_id = j.run_id;
+      $("go").disabled = true;
+      $("prog").style.display = "block";
+      document.querySelector(".fill").classList.add("working");
+      attachRunStream(j.run_id);
+    } else if (j.status === "done" &&
+               /* pass-10 D1 + QA pass-2: a user-submitted run holds the
+                  screens against a stale done snapshot */
+               !(window.__grHoldResults && window.__grHoldResults())) {
+      runId = j.run_id; lastRunId = j.run_id;
+      $("prog").style.display = "block";
+      $("fill").style.width = "100%";
+      show("Guide finished.");
+      loadResult();
+      runId = null;
+    }
+  } catch (e) { /* reattach must never break a load */ }
+};
+
+/* one stream-binding helper shared by reattach (submit binds its own) */
+window.attachRunStream = function attachRunStream(rid) {
+  const es = new EventSource("/api/progress/" + rid);
+  /* QA pass-1 rev3: on stream error, close, then ONE honest recovery
+     per submit: the reload replays every stage event via the reattach;
+     a second drop goes poll-only; never reconnect-flood (105+ seen). */
+  es.onerror = () => {
+    es.close();
+    const stamp = Number(sessionStorage.getItem("gr-resume") || 0);
+    if (Date.now() - stamp > 120000) {
+      sessionStorage.setItem("gr-resume", String(Date.now()));
+      location.reload();
+    } else {
+      /* recovery already used for this submit: rebind the stream ONCE
+         via the reattach so the stage ladder catches up */
+      window.__grAttachLatest();
+    }
+  };
+  es.onmessage = (m) => {
+    const ev = JSON.parse(m.data);
+    if (ev.stage === "__end__") {
+      document.querySelector(".fill").classList.remove("working");
+      es.close(); lastRunId = rid; runId = null;
+      $("go").disabled = false;
+      return;
+    }
+    $("fill").style.width = estFill(ev.stage, ev.data) + "%";
+    if (ev.stage === "start") show("Researching: " + (ev.data.query || ""));
+    if (ev.stage === "search_done") show("Found " + (ev.data.pool || 0) +
+        " promising sources. Reading them now.");
+    if (ev.stage === "scraped") show("Reading source " + (ev.data.n || "?") +
+        ": " + (ev.data.title || ev.data.url || ""));
+    if (ev.stage === "judged") show("Reviewing findings: " +
+        (ev.data.judged_so_far || 0) + " of " + (ev.data.of || "?") +
+        " sources kept " + (ev.data.accepted_so_far || 0));
+    if (ev.stage === "images") { show("Gathering images…");
+      /* reload only on the POST-work event (numeric count): the
+         pre-work "?" event would flash an empty results panel */
+        if (typeof ev.data.count === "number") loadResult(); }
+    if (ev.stage === "audit") show("Reviewing the findings…");
+    if (ev.stage === "guide") { show("Guide finished."); (async () => loadResult())(); }
+    if (ev.stage === "error") $("err").textContent =
+        "Run failed: " + (ev.data.error || "?");
+  };
+  return es;
+};
+
+/* ONE initial reattach on load */
+window.__grAttachLatest();
+
+/* ---- run lifecycle: the submit journey ----------------------------- */
+$("f").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const q = $("q").value.trim();
+  if (!q) { show("Type a topic to research, then press Research."); return; }
+  if (runId) { show("Already running — hold on."); return; }
+  addHist(q);
+  sessionStorage.removeItem("gr-resume");   /* re-arm rev3 recovery */
+  document.querySelector(".fill").classList.add("working");
+  $("go").disabled = true;
+  $("err").textContent = "";
+  /* GS-03: every exit path re-enables the button and clears run/poll
+     state — a refused connection, non-JSON body, or server error used to
+     strand the UI with the submit button permanently disabled. */
+  try {
+    const r = await fetch("/api/research", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({query: q, length: _length})});
+    if (!r.ok) throw new Error("server responded " + r.status);
+    const j = await r.json();
+    if (!j || !j.run_id) throw new Error("the server sent no run id");
+    runId = j.run_id;
+    window.__poll_id = j.run_id;
+    const es = attachRunStream(runId);
+    /* the submit path differs from the reattach in two ways: the query is
+       known (the stage echoes it) and a stream drop recovers like the
+       reattach does below */
+    es.onmessage = ((base) => (m) => {
+      const ev = JSON.parse(m.data);
+      if (ev.stage === "start" && ev.data && !ev.data.query) {
+        show("Researching: " + q);
+      }
+      base(m);
+    })(es.onmessage);
+  } catch (err) {
+    runId = null;
+    window.__poll_id = null;
+    document.querySelector(".fill").classList.remove("working");
+    $("fill").style.width = "4%";
+    $("go").disabled = false;
+    $("err").textContent = "Couldn't start the run: " + err.message;
+    show("");
+    /* screens.js flips body[data-screen] to "progress" on any non-empty
+       submit — flip back so the form is reachable to retry after a
+       refusal (the pill menu alone is otherwise the way back). */
+    document.body.dataset.screen = "search";
+  }
+});
+
+async function loadResult() {
+  const rid = runId || lastRunId;
+  if (!rid) return;
+  /* pass-8 D3: the refine panel belongs to one run. When results for a
+     DIFFERENT run are painted, hide and clear any refine output and the
+     prompt so the previous run's refine text can't be misattributed. */
+  if (window.__refineRunId && window.__refineRunId !== rid) {
+    const ro = $("refineout");
+    ro.style.display = "none"; ro.textContent = "";
+    const rq = $("refineq"); if (rq) rq.value = "";
+    window.__refineRunId = null;
+  }
+  let j;
+  try {
+    const r = await fetch("/api/run/" + rid);
+    if (!r.ok) return;
+    j = await r.json();
+  } catch (e) { return; }
+  const res = j.result || {};
+  const guide = res.master_guide || {};
+  const mg = String(guide.preview || "");
+  const m = mg.match(/\*\*Executive Brief:\*\*([\s\S]*?)(?:\n\n|$)/);
+  const text = m ? m[1].trim() : (mg.slice(0, 700) || "no content");
+  const srcsRaw = (res.sources || res.pages_fetched || []).slice(0, 8);
+  const srcsList = Array.isArray(srcsRaw) ? srcsRaw : [];
+  const urls = srcsList.map(x => (typeof x === "string" ? x : x && x.url));
+  /* guide preview: textContent + .brief's pre-line styling replaces the
+     old innerHTML + <br> splice; the summary span is appended as a node */
+  const brief = $("brief");
+  brief.textContent = text;
+  brief.appendChild(document.createElement("br"));
+  const sum = document.createElement("span");
+  sum.className = "src";
+  sum.textContent = "Summary written from " + (urls.length || 0) + " sources.";
+  brief.appendChild(sum);
+  $("path").textContent =
+      guide.path ? ("guide: " + String(guide.path).replace(/^.*\/guides\//, "guides/")) : "";
+  const sl = $("srcs");
+  sl.replaceChildren();
+  urls.forEach(u => {
+    const li = document.createElement("li");
+    li.appendChild(linkEl(u));
+    sl.appendChild(li);
+  });
+  const cands = res.image_candidates || [];
+  pickSet = new Set();
+  window.__cands = cands;
+  window.__imgsBox = document.getElementById("imgs");
+  window.__pick = pickSet;
+  const imgbox = $("imgs");
+  imgbox.replaceChildren();
+  if (!cands.length) {
+    const none = document.createElement("small");
+    none.className = "src";
+    none.textContent = "No usable images found for this topic — "
+        + "the guide ships text-only.";
+    imgbox.appendChild(none);
+  }
+  cands.forEach((c, i) => imgbox.appendChild(imgCard(c, i)));
+  selectedMeta = cands;
+  // live research text: each kept source, its distilled paragraphs
+  const rt = $("researchtext");
+  const pages = (res.pages_fetched || []).filter(p => p && (p.text ||
+      (p.clean || {}).body_text));
+  rt.replaceChildren();
+  pages.slice(0, 6).forEach(p => {
+    const title = (p.clean || {}).title || p.title || p.url;
+    let body = ((p.clean || {}).body_text || p.text || "").trim();
+    // pass-9 gate: drop code/JSON/junk blobs from the live view
+    body = body.split(/\n+/).filter(x =>
+        !/^\s*[{\[<]/.test(x) && !/"signature"/.test(x) &&
+        !/^\s*(import|function|const|let|var)\s/.test(x) &&
+        /\s/.test(x)).join(" ");
+    // pass-9 gate: no blog-wall blobs — paragraph breaks when the source
+    // has none; fall back to sentence grouping
+    let paras = body.split(/[\n]{2,}/).filter(x => x.length > 80);
+    if (paras.length < 2) {
+        const sents = body.split(/(?<=[.!?])\s+/);
+        paras = [];
+        for (let i = 0; i < sents.length; i += 3)
+            paras.push(sents.slice(i, i + 3).join(" "));
+    }
+    paras = paras.filter(x => x.length > 80).slice(0, 3);
+    const box = document.createElement("div");
+    box.className = "rtsrc";
+    const h4 = document.createElement("h4");
+    h4.textContent = String(title || "");
+    box.appendChild(h4);
+    paras.forEach(x => {
+      const pe = document.createElement("p");
+      pe.textContent = x;            /* was a <lt>-splice; textContent wins */
+      box.appendChild(pe);
+    });
+    const srcLine = document.createElement("div");
+    srcLine.className = "src";
+    srcLine.style.fontSize = ".78rem";
+    srcLine.appendChild(linkEl(p.url || ""));
+    box.appendChild(srcLine);
+    rt.appendChild(box);
+  });
+  rt.style.display = pages.length ? "block" : "none";
+  $("res").style.display = "block";
+  $("fill").style.width = "100%";
+  $("built").textContent = "";
+}
+
+$("refinego")?.addEventListener?.("click", async () => {
+  const prompt = ($("refineq")?.value || "").trim();
+  if (!prompt || !lastRunId) return;
+  const go = $("refinego");
+  const out = $("refineout");
+  go.disabled = true;
+  out.style.display = "block";
+  out.textContent = "Working on it…";
+  window.__refineRunId = lastRunId;  /* pass-8 D3: bind panel to this run */
+  /* GS-03: response errors and connection failures restore the button via
+     finally and say what happened instead of stranding the panel. */
+  let j;
+  try {
+    const r = await fetch("/api/refine/" + lastRunId, {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({prompt})});
+    if (!r.ok) throw new Error("server responded " + r.status);
+    j = await r.json();
+  } catch (err) {
+    window.__refineRunId = null;
+    out.textContent = "Refine failed: " + err.message;
+    go.disabled = false;
+    return;
+  }
+  go.disabled = false;
+  out.style.display = "block";
+  if (j.ok && (j.image_suggestions || []).length) {
+    // per-paragraph suggestions enter the confirm grid, preselected:
+    // visible by default; a human unchecks what they do not want
+    const sg = j.image_suggestions.filter(c => c.file);
+    const startAt = window.__cands ? window.__cands.length : 0;
+    const box = window.__imgsBox || document.getElementById('imgs');
+    window.__cands = (window.__cands || []).concat(sg);
+    sg.forEach((c, k) => {
+      const d = imgCard(c, startAt + k, true);
+      d.className = "imgc sel";
+      box.appendChild(d);
+    });
+    window.__pick = window.__pick || new Set();
+    sg.forEach((_, k) => window.__pick.add(startAt + k));
+    selectedMeta = window.__cands;
+  }
+  if (j.ok) {
+    window.liteMd = window.liteMd || function(md) {
+      let h = md.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+      h = h.replace(/^## (.+)$/gm, '<h3 style="margin:14px 0 6px">$1</h3>');
+      h = h.replace(/^\s*[-*]\s+(.*)$/gm, "<li>$1</li>");
+      // markdown tables: contiguous pipe lines -> real <table>
+      h = h.replace(/^([^\n]*\|[^\n]*)$/gm, "<tr-split>$1</tr-split>");
+      h = h.replace(/(<tr-split>[^\n]*<\/tr-split>\n?)+\n?/g, (block) => {
+        const rows = block.split("\n").filter(l => l.includes("tr-split"))
+          .map(l => l.replace(/<\/?(span)?tr-split>/g, "").trim())
+          .filter(l => l.replace(/[^|]/g, "").length >= 1 && !/^\|?[-\s|:]+\|?[-\s|:]*$/.test(l));
+        if (!rows.length) return block;
+        const cells = r => r.replace(/^\||\|$/g, "").split("|").map(x =>
+          `<td style="padding:3px 8px;border-bottom:1px solid var(--el-line)">${x.trim() || ""}</td>`).join("");
+        return `<table style="border-collapse:collapse;margin:10px 0;font-size:.9rem">${
+          rows.map((r, i) => i === 0
+            ? `<tr>${r.replace(/^\||\|$/g, "").split("|").map(x =>
+                `<th style="padding:3px 8px;border-bottom:2px solid var(--el-line);text-align:left">${x.trim()}</th>`).join("")}</tr>`
+            : `<tr>${cells(r)}</tr>`).join("")}</table>`;
+      });
+      h = h.replace(/<tr-split>|<\/tr-split>/g, "");
+      h = h.replace(/(<li>[\s\S]*?<\/li>)(?!\s*<li>)/g, "<ul>$1</ul>");
+      h = h.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+      h = h.replace(/\\\*\\\*(.+?)\\\*\\\*/g, "<b>$1</b>");
+      h = h.replace(/^_([\s\S]*?)_$/gm, "<i>$1</i>");
+      h = h.replace(/([.!?])\s+([A-Z"'])/g, "$1 $2");
+      return h.replace(/\n/g, "<br>");
+    };
+    /* liteMd is the sanctioned markup renderer: it escapes & and < up
+       front, so no raw tag from the model output can reach innerHTML. */
+    out.innerHTML = liteMd(j.text);
+    const note = document.createElement("div");
+    note.className = "src";
+    note.style.marginTop = "10px";
+    note.textContent = "Latest version — keep refining or change your wording.";
+    out.appendChild(note);
+  } else {
+    out.textContent = (j.text || "Refine failed.")
+        + (j.error ? "\n" + j.error : "");
+  }
+});
+
+$("build").addEventListener("click", async () => {
+  const btn = $("build");
+  const b = $("built");
+  btn.disabled = true;
+  b.textContent = "Building your site…";
+  /* GS-03: the button comes back in finally on every path; response
+     errors report instead of dying to an unhandled await. */
+  try {
+    const chosen = (selectedMeta || []).filter((_, i) => (window.__pick || pickSet).has(i));
+    const r = await fetch("/api/build/" + lastRunId, {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({theme: document.getElementById("theme").value,
+                            images: chosen})});
+    if (!r.ok) throw new Error("server responded " + r.status);
+    const j = await r.json();
+    const gchecks = j.guardrails ? Object.keys(j.guardrails.checks || {}) : [];
+    const gpass = gchecks.filter(k => j.guardrails.checks[k].pass).length;
+    b.textContent = "";
+    if (j.ok) {
+      const tail = safePath(j.site);
+      if (!tail) throw new Error("the build returned an unusable site path");
+      b.append("Site built. ");
+      b.appendChild(anchorEl("/site/" + encPath(tail) + "/index.html", "Open it"));
+      b.append(" · ");
+      b.appendChild(anchorEl("/site/" + encPath(tail) + ".zip", "Download zip", true));
+      const pdfTail = j.pdf ? safePath(j.pdf) : "";
+      if (pdfTail) {
+        b.append(" · ");
+        b.appendChild(anchorEl("/site/" + encPath(pdfTail), "Download PDF", true));
+      }
+      b.append(" · Guardrails " + gpass + "/" + gchecks.length);
+    } else {
+      b.textContent = "Build failed: " + (j.error || (j.tail || "").slice(-200));
+    }
+  } catch (err) {
+    b.textContent = "Build failed: " + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+</script>
+<script src="/assets/screens.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+# Greysearch runtime dependencies.
+# Pinned to the versions this build was verified against (2026-10-26).
+# The local SearXNG fork is NOT a dependency: the search ladder falls through
+# from :8890 to public searx.space instances and then to direct fetching.
+markdown==3.7
+patchright==1.62.1
+flask==3.1.1
+PyYAML==6.0.2
