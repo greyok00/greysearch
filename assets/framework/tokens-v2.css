@@ -1,0 +1,35 @@
+@layer el-tokens {
+
+
+
+:root,
+[data-theme] {
+
+  /* ── v0.2.0 workflow + motion layer (append-only; originals untouched) ── */
+
+  --el-dur-surface:  280ms;
+  --el-dur-flow:     360ms;
+  --el-dur-progress: 520ms;
+
+  /* critically damped - the "quiet" entry for a serious research desk */
+  --el-ease-quiet:   cubic-bezier(.32, .72, .36, 1);
+
+  /* stage-semantic colors: defaults ride existing status tokens;
+     themes may remap per personality */
+  --el-stage-active:  var(--el-accent);
+  --el-stage-done:    var(--el-ok);
+  --el-stage-running: var(--el-accent);
+  --el-stage-stale:   var(--el-fail);
+
+  /* reading surface (long-form research desk) */
+  --el-measure:    68ch;
+  --el-facts-paper: var(--el-panel);
+  --el-facts-ink:   var(--el-ink);
+  --el-font-serif:  'Iowan Old Style', Palatino, 'Palatino Linotype', Georgia, serif;
+
+  /* press depth (kept beside --el-press so components can scale by token) */
+  --el-press-scale: 0.96;
+
+}
+
+}

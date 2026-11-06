@@ -1,0 +1,110 @@
+{
+  "version": "1",
+  "slot_rule": "Greysearch slot map: task-1 -> 9351, task-2 -> 9352, task-3 -> 9353, task-4 -> 9354. Slot ports are dedicated to this project: other local apps keep their own lanes on 9331-9334, so the two families can never reach for the same browser. One browser per task: own port, own profile. Slots are numbers only, not bound to any topic.",
+  "tasks": {
+    "task-1": {
+      "port": 9351,
+      "aliases": [
+        "task-1",
+        "1"
+      ],
+      "profile": "~/.cache/greysearch/task-1-profile"
+    },
+    "task-2": {
+      "port": 9352,
+      "aliases": [
+        "task-2",
+        "2"
+      ],
+      "profile": "~/.cache/greysearch/task-2-profile"
+    },
+    "task-3": {
+      "port": 9353,
+      "aliases": [
+        "task-3",
+        "3"
+      ],
+      "profile": "~/.cache/greysearch/task-3-profile"
+    },
+    "task-4": {
+      "port": 9354,
+      "aliases": [
+        "task-4",
+        "4"
+      ],
+      "profile": "~/.cache/greysearch/task-4-profile"
+    },
+    "task-5": {
+      "port": 9355,
+      "aliases": [
+        "task-5",
+        "5"
+      ],
+      "profile": "~/.cache/greysearch/task-5-profile"
+    },
+    "task-6": {
+      "port": 9356,
+      "aliases": [
+        "task-6",
+        "6"
+      ],
+      "profile": "~/.cache/greysearch/task-6-profile"
+    },
+    "task-7": {
+      "port": 9357,
+      "aliases": [
+        "task-7",
+        "7"
+      ],
+      "profile": "~/.cache/greysearch/task-7-profile"
+    },
+    "task-8": {
+      "port": 9358,
+      "aliases": [
+        "task-8",
+        "8"
+      ],
+      "profile": "~/.cache/greysearch/task-8-profile"
+    },
+    "task-9": {
+      "port": 9359,
+      "aliases": [
+        "task-9",
+        "9"
+      ],
+      "profile": "~/.cache/greysearch/task-9-profile"
+    },
+    "task-10": {
+      "port": 9360,
+      "aliases": [
+        "task-10",
+        "10"
+      ],
+      "profile": "~/.cache/greysearch/task-10-profile"
+    },
+    "task-11": {
+      "port": 9361,
+      "aliases": [
+        "task-11",
+        "11"
+      ],
+      "profile": "~/.cache/greysearch/task-11-profile"
+    },
+    "task-12": {
+      "port": 9362,
+      "aliases": [
+        "task-12",
+        "12"
+      ],
+      "profile": "~/.cache/greysearch/task-12-profile"
+    },
+    "task-13": {
+      "port": 9363,
+      "aliases": [
+        "task-13",
+        "13"
+      ],
+      "profile": "~/.cache/greysearch/task-13-profile"
+    }
+  }
+}

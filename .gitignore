@@ -1,0 +1,62 @@
+# Runtime state and secrets stay out of git.
+/guides/
+/runs-history/
+conf/
+.env
+.env.*
+*.local
+*.log
+/portal.pid
+/runs/
+/research/sets/
+/research/*.lock
+/research/engine-status.json
+/.promote-backup-*/
+/dist/
+/build/
+/sys
+/.superpowers/
+__pycache__/
+
+# Compiled copies of the shipped modules: source .py is tracked instead
+*.so
+*.pyd
+
+# Cython intermediates from the MAINTENANCE.md build recipe: top-level
+# <module>.c files are regenerated on every cythonize run and never shipped
+/*.c
+
+# Vendored captcha classifier weights: fetched + sha256-verified by
+# install.sh's vendor_captcha_model step from the upstream pinned in
+# models/SOURCE (checksums in models/CHECKSUMS). Heavy binary weights never
+# enter git - the tree ships the fetch mechanics, not the weights. The
+# active weights are hcaptcha-challenger's per-prompt grid library
+# (GPL-3.0, downloaded and used locally, never redistributed).
+/models/*.onnx
+/models/hcaptcha/
+/models/yolo/
+/models/clip/
+
+# Private working docs (not part of the shipped tree)
+/doc/AUDIT-*.md
+/doc/OWNER-*.md
+/doc/GREYSEARCH-*.md
+/doc/GREYSEARCH-*.txt
+
+# Runtime state (written by the portal, never shipped)
+/research/task-registry.json
+/research/sets/
+/research/engine-status.json
+
+# Unshipped auxiliaries: not part of the released tree
+/MAINTENANCE.md
+/NOTICE
+/doc/PROXY.md
+/assets/kit-source/README.md
+/out/
+/sites/
+
+# Packaging artifacts
+/greysearch.egg-info/
+*.egg-info/
+

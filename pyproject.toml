@@ -1,0 +1,109 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "greysearch"
+version = "0.9.0"
+description = "Local-first autonomous web research pipeline: search ladder, headless browsing, relevance gating, and a Flask portal."
+readme = "README.md"
+requires-python = ">=3.13"
+license = "Apache-2.0"
+# Keep in sync with requirements.txt.
+dependencies = [
+    "markdown==3.7",
+    "patchright==1.62.1",
+    "flask==3.1.1",
+    "PyYAML==6.0.2",
+    # CPU-only onnxruntime, for the vendored captcha classifier (never the
+    # gpu package; CUDA goes through onnxruntime's provider layer only).
+    "onnxruntime>=1.17,<2",
+]
+keywords = ["research", "search", "searxng", "metasearch", "web-scraping",
+            "local-first"]
+classifiers = [
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.13",
+]
+
+[project.urls]
+Homepage = "https://github.com/greyok00/greysearch"
+
+[project.scripts]
+greysearch-portal = "portal_server:main"
+greysearch-research = "research:main"
+greysearch-mcp = "greysearch_mcp:main"
+greysearch-build-site = "greysearch_site_builder:render"
+greysearch-doctor = "doctor:main"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E9", "F"]
+
+[tool.setuptools]
+py-modules = [
+    "browser_ports",
+    "browser_session",
+    # The local captcha solver and its classifier loader: pure-Python
+    # runtime modules the wheel must ship (never cythonised - portfolio-
+    # readable-source policy).
+    "captcha_model",
+    "captcha_solve",
+    "direct_sources",
+    "doctor",
+    "dossier",
+    "greysearch_mcp",
+    "greysearch_publisher",
+    "greysearch_site_builder",
+    "guide_scrub",
+    "image_gate",
+    "keys",
+    "llm_audit",
+    "page_clean",
+    "patchright_headless",
+    "patchright_scraper",
+    "pdf_export",
+    "photos",
+    "pipeline_sites",
+    "portal_ledger",
+    "portal_server",
+    "proxy_mode",
+    "relevance",
+    "research",
+    "research_injection",
+    "research_integration",
+    "searx_fallback",
+    "searxng_integrated",
+    "site_guardrails",
+    "site_render",
+    "tuning",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+# Namespace-style data directories (no __init__.py): they carry the data
+# files the modules read relative to their own directory. A directory such
+# as research/ never shadows the research.py module: regular modules win
+# over namespace packages during import.
+include = ["llm*", "research*", "portal*", "assets*", "models*"]
+exclude = ["build*", "dist*", "tests*", "guides*", "doc*", "run*"]
+
+[tool.setuptools.package-data]
+# The vendored-weights package: the fetch mechanics ride in the wheel, the
+# weights file itself never does (install.sh fetches + checksum-verifies).
+models = ["SOURCE", "CHECKSUMS"]
+research = [
+    "tuning.json", "browser-ports.json", "searx-fallback-roster.json",
+    "data/*.json", "rules/*.json",
+]
+portal = ["*.html", "*.service"]
+assets = [
+    "*.css", "*.js",
+    "framework/*.css", "framework/*.js",
+    "kit-source/*.py", "kit-source/*.css", "kit-source/*.js",
+]

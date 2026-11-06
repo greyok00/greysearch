@@ -1,0 +1,128 @@
+# models/SOURCE - what the vendored captcha weights are, and their license.
+
+ACTIVE PIN (2026-11-05, owner-directed): the hcaptcha-challenger modelhub
+grid library
+  project:    hcaptcha-challenger (QIN2DIM), on github.com
+  artifacts:  the per-prompt binary tile classifiers from the release
+              tagged "model" (the repo's modelhub release; 487 small
+              ResNet-style .onnx models, ~300 KB each, one per challenge
+              label: cat2309.onnx, dog.onnx, animal2309.onnx, ...)
+  release:    https://github.com/QIN2DIM/hcaptcha-challenger/releases/tag/model
+  asset URL:  https://github.com/QIN2DIM/hcaptcha-challenger/releases/download/model/<file>.onnx
+  sha256:     one pin per file in models/CHECKSUMS (generated after fetch)
+  license:    GPL-3.0 (the project's LICENSE)
+  use:        downloaded to this machine's disk only, under GPL-3.0's free
+              local/private use. NOT redistributed: the .onnx files are
+              git-ignored (models/hcaptcha/) and never enter the tree,
+              release, or any published artifact. No upstream SOURCE is
+              copied into this repo - the runtime code (captcha_model.py,
+              models/FEATURIZER.py) is written fresh from the decompiled
+              ONNX graphs alone (input/output tensor contracts, op list,
+              embedded constants read with the `onnx` protobuf loader),
+              with decision rules and preprocessing validated against
+              upstream's own ground-truth tile set where such a set exists
+              (image_label_binary/off_road_vehicle: 40/40). Anything true
+              upstream does that cannot be inferred from the graphs alone
+              is disclosed as a gap in FEATURIZER's docstring, not papered
+              over.
+  graph contract (every sampled model):
+      input  "input.1": float32[1, 3, 64, 64]  NCHW RGB, batch pinned to 1
+      output (name varies): float32[1, 2] raw logits; class 0 = tile
+      matches the challenge prompt
+      preprocessing: NONE inside the graph - decode, squash to 64x64, RGB,
+      /255 and nothing further (validated 40/40 against ground truth).
+  what these models are: the real per-tile relevance answerer for
+  hcaptcha/captcha-style image grids - prompt names the model, model sides
+  each tile yes/no. They are NOT a multimodal LLM; hcaptcha-challenger's
+  newest release line (v0.18+) routes more exotic challenges (relative
+  comparisons like "select all numbers smaller than", GAN-era prompt
+  families the vintage models never trained on) through its LLM lane
+  instead - which is exactly the ladder's llm rung above this cpu rung.
+
+HISTORICAL (superseded by the owner directive of 2026-11-05, kept for the
+record): the ONNX Model Zoo's Apache-2.0 SqueezeNet 1.0 stand-in
+(squeezenet1.0-12.onnx, pinned at upstream commit
+4c46cd00fbdb7cd30b6c1c17ab54f2e1f4f7b177 in CHECKSUMS's previous revision)
+was vendored in 1ea4757..8fe5746 under the then-binding Apache-only vendor
+rule. It was never a captcha solver - a generic ImageNet classifier whose
+cpu rung could only record an honest skip - so its file name
+captcha-classifier.onnx is retired here: the active weights under
+models/hcaptcha/ answer for real, and the SqueezeNet stand-in story lives
+only in this paragraph and the git history.
+
+2026-11-05 MODEL WIRING (the detector + clip rungs): the same release
+pinned above (tag "model", 553 assets) also ships the two further weight
+families the ladder runs, plus two weight-adjacent data files. All of it
+is downloaded to this machine's disk only, verified against the
+models/CHECKSUMS pins, and NEVER committed or redistributed.
+
+  models/yolo/  - 59 YOLOv8 object detectors (~36 MB, release assets,
+                  GPL-3.0): the coordinate-challenge answerers. The decompile
+                  contract and the consumer recipe live in
+                  models/YOLO_FEATURIZER.py (validated end to end:
+                  COCO2020_yolov8m answers cat p=0.89 / dog p=0.93 with
+                  correct boxes under exactly that recipe; the runtime
+                  loader re-proves the decode in the suite's real-weights
+                  detector test). Routing uses upstream's own ashes_of_war
+                  label table, fetched VERBATIM as
+                  models/yolo/objects2023.yaml from upstream's src tree and
+                  read directly (no derived table file ships or exists here);
+                  the 7-anchor-era yolov5/v6 checkpoints and
+                  onclick_yolov8m stay vendored inventory - no route speaks
+                  for them (different output layout / undisclosed label
+                  semantics), disclosed rather than guessed.
+  models/clip/  - 3 CLIP encoder pairs (~2.6 GB, release assets, GPL-3.0):
+                  visual_CLIP_<family>.onnx + textual_CLIP_<family>.onnx for
+                  rn50.openai, ViT-B-32.openai, ViT-L-14-DataComp.XL-s13B-
+                  b90K. The decompile contract and preprocessing live in
+                  models/CLIP_FEATURIZER.py; the prompt-side BPE tokenizer
+                  lives in models/CLIPTOKENIZER.py and re-derives its ids
+                  from the vocabulary file below. The runtime matcher
+                  (captcha_model.load_clip) L2-normalizes both sides and
+                  picks tiles clearing an absolute floor AND the grid's own
+                  mean+0.5*std margin; DEFAULT family ViT-B-32 (validated on
+                  the vendored 3x3 challenge screenshot: per-tile argmax
+                  8/9 - only the heaviest anti-pattern-overlaid tile
+                  misreads - and prompt-threshold picks exact 9/9, RN50 7/9
+                  and 8/9 respectively; see the suite's real-weights CLIP
+                  test). The ViT-L-14 visual half fails the onnx checker on
+                  disk (released asset is corrupt upstream; byte-identical
+                  to the release, pinned, fetched); ONNXRuntime refuses to
+                  build it, the matcher caches that refusal per family and
+                  falls to the next family - disclosed, not papered over.
+  models/clip/bpe_simple_vocab_16e6.txt.gz
+                - CLIP's own BPE vocabulary, from
+                  https://github.com/openai/CLIP (MIT license; the one pin
+                  here that is not GPL-sourced).
+  models/yolo/objects2023.yaml
+                - upstream's ashes_of_war table, fetched verbatim from
+                  https://raw.githubusercontent.com/QIN2DIM/hcaptcha-challenger/main/src/objects2023.yaml
+                  (rung data only; the routing phrase rules that turn the
+                  table into prompt-matches are fresh code, as is the rest
+                  of the runtime).
+
+Routing phrasing rules (detector_for_prompt): upstream's head and catch-all
+matching semantics re-implemented fresh - head labels route "head of the
+<animal>", digits route number-two/number-nine phrasings, the special
+labels (not-animal, x-eaten, can-run, the-one-piece, animal-head, hexagon,
+spiral-center, star-bricks) route their challenge phrasings, everything
+else routes on the table's plain labels plus stem-derived species phrases.
+KNOWN GAPS, disclosed: bare animal prompts ("click on the owl") may have no
+detector route when only a head model exists (the grid library covers
+those); upstream's digit-keypoint pixel-fin tune (a few px right/down nudge
+for number clicks) is not replicated; prompts the table cannot express
+route nothing and fall to the llm/clip rungs honestly.
+
+CLASS FILTER (review fix, 2026-11-05): a located box is clicked only when
+its graph class matches the prompt's routed label. The class ids come from
+each ONNX graph's own "names" metadata (parsed once per model at session
+build); labels whose head model has no plain entry fall back to the
+"<label>-head" neighbor once, and any stand-down - a graph without
+parseable names metadata, or a routed label with no class id - keeps the
+pre-filter behavior but records a WARNING in the
+greysearch.captcha.model log, once per model/label/cause. Unmapped labels
+with at least one resolved sibling still filter by the resolved class.
+
+VENDOR SCOPE: install.sh fetches and verifies the grid library by default;
+GREYSEARCH_CAPTCHA_VENDOR=all adds the yolo/clip pins (~5 GB). A vendor
+run NEVER deletes weight files already on disk.
