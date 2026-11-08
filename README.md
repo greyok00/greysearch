@@ -89,7 +89,7 @@ For each result URL:
   - Image grids (hCaptcha, reCAPTCHA): the resident-model rung answers, then per-prompt binary tile classifiers from hcaptcha-challenger's modelhub release (fetched at install, decompiled and wired fresh), then a CLIP pair for semantic multi-select prompts.
   - Coordinate challenges ("click the object"): routed to vendored YOLO detectors, prompts matched through the upstream label table (including `not an animal` / `head of the ...`-style phrasing), boxes filtered by class, clicked all-or-nothing.
   - Arkose/FunCaptcha match rounds and legacy text captchas run through the resident-model rung (picks or transcription are typed into the page).
-  - Honest limits: Arkose rotation puzzles and reCAPTCHA v3 are detected and recorded (rotation click semantics are unverifiable; v3 is a score widget with no challenge), and every other miss is recorded as a miss, never a fabricated solve. The full per-family coverage map is `doc/captcha-bench-2026-11-05.md`.
+  - Honest limits: Arkose rotation puzzles and reCAPTCHA v3 are detected and recorded (rotation click semantics are unverifiable; v3 is a score widget with no challenge), and every other miss is recorded as a miss, never a fabricated solve.
   - `GREYSEARCH_CAPTCHA_SOLVER=off` skips solving and records the skip in the run record. Where weights are absent or fail to load, the model rung deactivates itself and the record says the lane ran model-only.
 - **No captcha browser extension ships or loads with the lane**: greysearch never installs, seeds, loads,
   or wires a captcha-solving extension into its own browser profiles. A captcha extension may exist on
