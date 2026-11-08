@@ -43,6 +43,30 @@ Unlike traditional search tools, GreySearch:
 - Provides **verifiable output**: you can trace every fact back to the original page.
 - Is **internet-connected by design**: every research pass needs your network (search queries, page fetches, and installation downloads like Chromium and the optional captcha model weights). What never happens is a call home beyond those fetches - no telemetry, no accounts, no servers of ours.
 
+## Self-learning RAG pipeline (2026-11-08)
+
+GreySearch is now the retrieval engine of an offline RAG loop with
+[`knowledge-ingestor`](https://github.com/greyok00/knowledge-ingestor)— the pair lets
+any local agent answer from a permanent, self-filling document library instead of
+bruised model weights:
+
+```
+agent task → kb_search (offline, semantic+lexical, MiniLM-L6-v2 ONNX on CPU)
+   └─ miss/soft hit → kb_learn_topic
+        ├─ greysearch deep run (lane ladder → headless render → captcha solve → relevance gates)
+        ├─ robots.txt politeness gate
+        ├─ extraction funnel: trafilatura → selectolax DOM walk → code-block harvest
+        ├─ quality gate: official-doc domains, doc paths, density, UGC/junk rejection
+        │   (every rejection reported with its reason— nothing silent, nothing invented)
+        └─ ingest with per-record provenance (url, host, gate verdict) → library grows
+   └─ kb_search again— the knowledge is now permanently local and citable
+```
+
+- **`kb_ingest_text`** stores trusted local text verbatim (solved incidents, owner rules) with provenance.
+- **`kb_search`** answers from the offline library with confidence bands (firm / soft / lex-only)— "empty means escalate, never guess".
+- **`kb_learn_topic`** runs the whole greysearch→gate→ingest loop on demand; the Master Guide's sections are ingested too.
+- The same two MCP servers (`greysearch_mcp.py`, `kbserver.py`) are attachable by **any** MCP client — pi, Claude Code, CortexAgent, or any MCP client — one stdio command each.
+
 ## How it works
 
 GreySearch follows a strict, transparent pipeline:
