@@ -65,7 +65,7 @@ agent task → kb_search (offline, semantic+lexical, MiniLM-L6-v2 ONNX on CPU)
 - **`kb_ingest_text`** stores trusted local text verbatim (solved incidents, owner rules) with provenance.
 - **`kb_search`** answers from the offline library with confidence bands (firm / soft / lex-only)— "empty means escalate, never guess".
 - **`kb_learn_topic`** runs the whole greysearch→gate→ingest loop on demand; the Master Guide's sections are ingested too.
-- The same two MCP servers (`greysearch_mcp.py`, `kbserver.py`) are attachable by **any** MCP client — pi, Claude Code, CortexAgent, or any MCP client — one stdio command each.
+- The same two MCP servers (`greysearch_mcp.py`, `kbserver.py`) are attachable by **any** MCP client — pi, Claude Code, CortexAgent, or anything that speaks the Model Context Protocol — one stdio command each.
 
 ## How it works
 
