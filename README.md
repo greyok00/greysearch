@@ -45,10 +45,10 @@ Unlike traditional search tools, GreySearch:
 
 ## Self-learning RAG pipeline (2026-11-08)
 
-GreySearch is now the retrieval engine of an offline RAG loop with
-[`knowledge-ingestor`](https://github.com/greyok00/knowledge-ingestor)— the pair lets
-any local agent answer from a permanent, self-filling document library instead of
-bruised model weights:
+GreySearch is now the retrieval engine of an offline RAG loop. Paired with the
+**knowledge-ingestor** MCP server (the offline-library half of this pipeline), the
+pair lets any local agent answer from a permanent, self-filling document library
+instead of bruised model weights:
 
 ```
 agent task → kb_search (offline, semantic+lexical, MiniLM-L6-v2 ONNX on CPU)
