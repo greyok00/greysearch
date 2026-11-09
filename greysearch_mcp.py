@@ -1009,6 +1009,18 @@ def _attach_guide(result: dict, query: str, write_path: Path) -> dict:
                         "site guardrails FAILED: "
                         + ", ".join(k for k, c in _guard["checks"].items()
                                     if not c["pass"]))
+                else:
+                    # Shelf only guardrail-clean builds from the engine side
+                    try:
+                        import works_library
+                        works_library.ingest_build(
+                            str(write_path),
+                            {"site": str(site_out), "theme": "master",
+                             "refined_source": "engine"},
+                            {"title": (query[:90] or "Research Guide"),
+                             "query": query, "run_id": ""})
+                    except Exception:
+                        pass
             except Exception:
                 pass
             if pr.returncode != 0:

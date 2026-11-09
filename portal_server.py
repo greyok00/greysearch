@@ -57,6 +57,31 @@ _ROW_MILESTONES = frozenset({
 
 import proxy_mode as _proxy_mode
 
+# Library bridge: ingestor core, imported lazily so the portal keeps
+# serving even when the knowledge-ingestor is absent (library shows
+# "unavailable" instead of crashing the research station).
+_kbcore = None
+_KB_ROOT = "/home/grey/knowledge-ingestor"
+try:
+    if _KB_ROOT not in sys.path:
+        sys.path.insert(0, _KB_ROOT)
+    import kbcore as _kbcore
+except Exception:
+    _kbcore = None
+_ENCODER = None
+
+def _library_encoder():
+    """Shared kbcore Encoder for library search; None when unsupported."""
+    global _ENCODER
+    if not _kbcore:
+        return None
+    if _ENCODER is None:
+        try:
+            _ENCODER = _kbcore.Encoder()
+        except Exception:
+            _ENCODER = False
+    return _ENCODER or None
+
 
 def _row_write(run_id: str, run: dict) -> None:
     """Durable run lifecycle row (runs/portal/<id>.json): written at
@@ -687,6 +712,110 @@ def _runner(run_id: str, query: str, length: str, max_pages: int,
         else:
             _emit(run_id, "__end__", {})
 
+@app.get("/library.html")
+def _library_page():
+    return send_from_directory(_PORTAL_DIR, "library.html")
+
+
+_LIBRARY_ROOT = "/home/grey/knowledge-ingestor/dbs"
+
+def _library_data():
+    """Library index: record + host census over the ingestor's dbs.
+    pack_rows() caches by realpath, so repeat calls stay cheap."""
+    if not _kbcore:
+        return []
+    root = os.environ.get("KB_DBS_DIR") or "/home/grey/knowledge-ingestor/dbs"
+    data = []
+    for name in sorted(os.listdir(root)):
+        path = os.path.join(root, name, "pack.jsonl")
+        if not os.path.isfile(path):
+            continue
+        try:
+            path_abs = os.path.realpath(path)
+            rows = _kbcore.pack_rows(os.path.dirname(path_abs))
+        except Exception:
+            continue
+        hosts = {}
+        for r in rows:
+            u = r.get("u") or r.get("p") or "local"
+            h = u.split("/")[2] if u.startswith("http") else "local"
+            hosts[h] = hosts.get(h, 0) + 1
+        m = {}
+        try:
+            m = json.load(open(os.path.join(os.path.dirname(path_abs),
+                                            "manifest.json"))) or {}
+        except Exception:
+            pass
+        data.append({"name": name, "n": len(rows), "rows": rows, "hosts": hosts,
+                     "note": str(m.get("note") or "")[:80],
+                     "built": str(m.get("built_at") or m.get("updated") or "")[:19]})
+    return data
+
+@app.get("/api/library")
+def _api_library():
+    if not _kbcore:
+        return jsonify({"error": "library unavailable: knowledge-ingestor kbcore not importable"}), 503
+    data = _library_data()
+    return jsonify([{"name": d["name"], "n": d["n"], "hosts": d["hosts"],
+                     "note": d["note"], "built": d["built"]} for d in data])
+
+@app.get("/api/library/records")
+def _api_library_records():
+    """Browse mode: page through a db's records in pack order (no query)."""
+    if not _kbcore:
+        return jsonify({"error": "library unavailable"}), 503
+    db = request.args.get("db", "").strip()
+    try:
+        off = max(0, int(request.args.get("offset", 0)))
+        lim = min(max(1, int(request.args.get("limit", 24))), 100)
+    except ValueError:
+        off, lim = 0, 24
+    root = os.environ.get("KB_DBS_DIR") or "/home/grey/knowledge-ingestor/dbs"
+    p = os.path.join(root, db, "pack.jsonl")
+    if not (db and os.path.isfile(p)):
+        return jsonify({"error": "unknown db %s" % db}), 404
+    try:
+        rows = _kbcore.pack_rows(os.path.dirname(os.path.realpath(p)))
+    except Exception as e:
+        return jsonify({"error": str(e)[:140]}), 500
+    rows = rows[off:off + lim]
+    return jsonify({"db": db, "offset": off, "records": [
+        {"i": r["i"], "t": r["t"], "src": r.get("src", "web"),
+         "x": (r["x"] or "")[:600]} for r in rows]})
+
+@app.get("/api/library/search")
+def _api_library_search():
+    if not _kbcore:
+        return jsonify({"error": "library unavailable: knowledge-ingestor kbcore not importable"}), 503
+    q = request.args.get("q", "").strip()
+    db = request.args.get("db", "").strip()
+    try:
+        k = max(1, min(int(request.args.get("k", 8)), 50))
+    except ValueError:
+        k = 8
+    if not (q or db):
+        return jsonify({"error": "db or q required"}), 400
+    data = _library_data()
+    names = {d["name"] for d in data}
+    if db and db not in names:
+        return jsonify({"error": "unknown db %s" % db}), 404
+    enc = _library_encoder()
+    res = []
+    err = ""
+    for d in data:
+        if db and d["name"] != db:
+            continue
+        p = os.path.join(os.environ.get("KB_DBS_DIR") or "/home/grey/knowledge-ingestor/dbs",
+                         d["name"], "pack.jsonl")
+        try:
+            for hit in _kbcore.search(os.path.dirname(os.path.realpath(p)), q, k=k, enc=enc):
+                hit["db"] = d["name"]
+                res.append(hit)
+        except Exception as e:
+            err = str(e)[:140]
+    res.sort(key=lambda h: (-(h.get("cos", 0) or 0), -(h.get("lex", 0) or 0)))
+    return jsonify({"hits": res, "q": q, "db": db, "k": k, **({"error": err} if err else {})})
+
 @app.get("/")
 def index():
     return send_from_directory(_PORTAL_DIR, "index.html")
@@ -1180,6 +1309,15 @@ def api_build(run_id: str):
                                        else "deterministic"),
                     "base_guide": str(gpath)}
     _supersede_stale_site_state(run, run["build"])
+    # Works shelf: every validated build lands in the dark Works library
+    try:
+        import works_library
+        works_library.ingest_build(str(tmp_md), run["build"],
+                                  {"title": _build_title(result),
+                                   "query": (result.get("question") or ""),
+                                   "run_id": run_id})
+    except Exception:
+        pass
     _emit(run_id, "built", {"site": str(site_out) if ok else None,
                             "zip": zip_path, "pdf": pdf_path, "ok": ok})
     return jsonify(run["build"])
@@ -1328,6 +1466,61 @@ def api_refine(run_id: str):
         out = {"ok": False, "text": "", "error": str(e)[:200]}
     _emit(run_id, "refine", {"ok": bool(out.get("ok"))})
     return jsonify(out)
+
+@app.get("/works.html")
+def _works_page():
+    return send_from_directory(_PORTAL_DIR, "works.html")
+
+
+@app.get("/api/works")
+def _api_works():
+    try:
+        import works_library
+        return jsonify(works_library.shelf_data())
+    except Exception as e:
+        return jsonify({"error": str(e)[:140]}), 500
+
+
+@app.get("/api/works/search")
+def _api_works_search():
+    try:
+        import works_library
+        return jsonify({"hits": works_library.search_works(
+            request.args.get("q", ""))})
+    except Exception as e:
+        return jsonify({"error": str(e)[:140]}), 500
+
+
+@app.get("/works/<wid>/site/<path:fname>")
+def _works_site(wid, fname):
+    """Serve a shelved build read-only from data/works/<id>/site/."""
+    try:
+        import works_library
+        base, why = works_library.open_work(wid)
+    except Exception as e:
+        return f"works error {str(e)[:80]}", 500
+    if not base:
+        return "unknown work", 404
+    return send_from_directory(base, fname)
+
+
+@app.get("/works/<wid>/download.pdf")
+def _works_pdf(wid):
+    import works_library
+    p = works_library.work_pdf(wid)
+    if not p or not p.is_file():
+        return "no pdf", 404
+    return send_from_directory(p.parent, p.name, as_attachment=True)
+
+
+@app.get("/works/<wid>/download.zip")
+def _works_zip(wid):
+    import works_library
+    p = works_library.work_zip(wid)
+    if not p or not p.is_file():
+        return "no zip", 404
+    return send_from_directory(p.parent, p.name, as_attachment=True)
+
 
 @app.get("/api/run/<run_id>")
 def api_run(run_id: str):
@@ -1712,6 +1905,40 @@ def api_fetch_urls(run_id: str):
         except Exception:
             pass
         lock.release()
+
+@app.post("/api/rank/<run_id>")
+def api_rank(run_id: str):
+    """Heuristic thinking layer for the curation pane: ranks every kept
+    paragraph of the run's curation record against the run's question.
+    No model, no GPU - ms-fast, always available. The pane may then run
+    an optional local WebLLM pass over model_shortlist entirely in the
+    browser and merge its advisory verdicts client-side."""
+    with _RUNS_LOCK:
+        run = _RUNS.get(run_id)
+    guide_path = (((run or {}).get("result") or {})
+                  .get("master_guide") or {}).get("path") or ""
+    if not guide_path:
+        reg = _registry_read(run_id)
+        guide_path = reg.get("guide_path") or ""
+    if not guide_path:
+        return jsonify({"error": "unknown run"}), 404
+    cpath = Path(guide_path)
+    cpath = cpath.with_suffix(cpath.suffix + ".curation.json")
+    if not cpath.is_file():
+        return jsonify({"error": "this run has no curation record"}), 404
+    try:
+        payload = json.loads(cpath.read_text())
+    except Exception as e:
+        return jsonify({"error": str(e)[:140]}), 500
+    q = str((run or {}).get("query") or _registry_read(run_id).get("query")
+            or "")
+    length = str((run or {}).get("length") or
+                 _registry_read(run_id).get("length") or "standard")
+    try:
+        import curate_rank
+        return jsonify(curate_rank.rank_record(payload, q, length))
+    except Exception as e:
+        return jsonify({"error": str(e)[:140]}), 500
 
 FAVICON = ("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4n"
            "GNgYGBgAAAABQABh6FO1AAAAABJRU5ErkJggg==")

@@ -60,3 +60,7 @@ __pycache__/
 /greysearch.egg-info/
 *.egg-info/
 
+
+# thinking-layer model artifacts (weights + wasm) — rebuilt from /home/grey/apps/models
+assets/models/
+data/works/

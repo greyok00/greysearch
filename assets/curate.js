@@ -474,6 +474,26 @@
     if (!arr.length) delete sel.paragraphs[key];
   }
 
+  /* assist.js hooks: the local thinking layer ticks suggestions through
+     the same toggle + fires the row visuals + records the click, exactly
+     as a manual pick would (visualcompanion journal stays truthful). */
+  window.__curTogglePara = function (key, pid, on) {
+    togglePara(key, pid, on);
+    var node = document.querySelector(
+      '[data-para="' + CSS.escape(key) + '"][data-pid="' +
+      CSS.escape(pid) + '"]');
+    if (node) {
+      refreshRowVisual(node, on);
+      emitEvent("para", {pid: pid,
+                         u: node.getAttribute("data-u") || "", on: on});
+    }
+    $("cur-count").textContent = countLine();
+  };
+  window.__curIsPicked = function (key, pid) {
+    return ((sel.paragraphs[key] || []).indexOf(pid) >= 0);
+  };
+  window.__curRid = function () { return lastRid; };
+
   /* ---- interaction journal: uncommitted picks survive a reload --------
      Every selection click appends one JSON event (visualcompanion events
      contract, ported natively: no iframe, no protocol doc - the run's
@@ -1200,7 +1220,12 @@
     }
     var sameRun = rid === lastRid && cur;
     lastRid = rid;
-    if (!sameRun) resetForRun();
+    if (!sameRun) {
+      resetForRun();
+      /* the thinking layer's state is per-run: verdicts and paints must
+         never leak onto the next run's paragraphs */
+      if (window.__assistReset) window.__assistReset();
+    }
     return loadCurPaint(rid, false);
   };
   if (window.__curWant) {
