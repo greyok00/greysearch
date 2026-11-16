@@ -1,0 +1,72 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install ruff
+      - run: ruff check .
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements.txt pytest
+      - run: python -m pytest tests/ -v
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install build
+      - run: python -m build --wheel
+      - name: Wheel purity (no compiled artifacts, core modules present)
+        run: |
+          python - <<'EOF'
+          import glob, zipfile, sys
+          wheels = glob.glob("dist/*.whl")
+          assert len(wheels) == 1, wheels
+          names = zipfile.ZipFile(wheels[0]).namelist()
+          banned = [n for n in names if n.endswith((".so", ".c", ".pyd", ".pyx"))]
+          assert not banned, f"compiled artifacts in wheel: {banned}"
+          required = [
+              "portal_server.py", "portal_ledger.py", "research.py",
+              "doctor.py", "greysearch_mcp.py", "greysearch_site_builder.py",
+              "llm/__init__.py",
+          ]
+          missing = [r for r in required
+                     if not any(n.endswith(r) for n in names)]
+          assert not missing, f"missing from wheel: {missing}"
+          print(f"purity OK: {len(names)} files, no compiled artifacts")
+          EOF
+      - name: Clean venv install from wheel
+        run: |
+          python -m venv /tmp/gs-venv
+          /tmp/gs-venv/bin/pip install -q -r requirements.txt
+          /tmp/gs-venv/bin/pip install -q --force-reinstall --no-deps dist/*.whl
+      - name: Entry point smoke (from a neutral cwd so the installed
+             package is exercised, not the checkout)
+        run: |
+          cd /tmp
+          py=/tmp/gs-venv/bin/python
+          bin=/tmp/gs-venv/bin
+          $py -c "import portal_server, portal_ledger; assert callable(portal_server.main)"
+          $py -c "import portal_server, portal_ledger; portal_ledger.register(portal_server.app)"
+          $bin/greysearch-doctor --help
+          $bin/greysearch-research --help
+          $bin/greysearch-build-site --help
+          $py -c "import greysearch_mcp as m; assert callable(m.main)"
