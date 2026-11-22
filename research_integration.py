@@ -23,6 +23,7 @@ import os
 import random
 import re
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
@@ -373,9 +374,16 @@ def _dedupe_skipped(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 class ResearchScraperBridge:
     """Bridge between the patchright scraper and the research pipeline."""
 
+    # Class-level defaults keep tests that construct the bridge with
+    # object.__new__ (no __init__) from tripping over the wedge guard.
+    _scrape_wedges = 0
+    _SCRAPE_WEDGE_MAX = 8
+
     def __init__(self):
         self._scrape_slot = None
         self._active_scrapes = set()
+        self._scrape_wedges = 0
+        self._SCRAPE_WEDGE_MAX = 8
         self.scraper = PatchrightScraper(stealth_level="high")
         self.searxng_manager = SearXNGEngineManager()
         self.sites_data = pipeline.SITES
@@ -738,6 +746,12 @@ class ResearchScraperBridge:
         page_cap = int(max_pages) if max_pages and max_pages > 0 else DEFAULT_MAX_PAGES
         _floor_hunt_cap = floor_hunt_extensions()
         _floor_hunt_used = 0
+        # the wedge guard below is per-RUN, and this method runs on a bridge
+        # that get_bridge() caches for the whole process: zero it here or one
+        # bad day of wedges bricks the browser scrape lane for every later
+        # run in the same portal/MCP process, and the "this run" in the skip
+        # note stops being true.
+        self._scrape_wedges = 0
 
         def _floor_hunt_left() -> int:
             """This run's remaining floor-hunt allowance: the budget may be
@@ -842,13 +856,20 @@ class ResearchScraperBridge:
                 cat_i = cats[0] if (cats and i == 0) else "general"
                 _sw = __import__("concurrent.futures", fromlist=["x"])
                 _search_pool = _sw.ThreadPoolExecutor(max_workers=1)
+                # per-lane wall = the flat 240s cap, but never more than the
+                # run's remaining SEARCH budget (+15s grace): a lane that
+                # burns its full 240s must not also eat the time the next
+                # lanes and the scrape stage still need (owner incident
+                # 04:30: sequential 150-240s lanes outran the whole budget
+                # and the wall-kill lost the run).
+                _lane_wall = max(30.0, min(240.0, search_deadline - time.time() + 15.0))
                 try:
                     _sfut = _search_pool.submit(
                         self.research_search, eq, category=cat_i,
                         max_results=8, engines=_sel["text"],
                         search_proxy=search_proxy,
                         floor_hunt_left=_floor_hunt_left())
-                    search_result = _sfut.result(timeout=240.0)
+                    search_result = _sfut.result(timeout=_lane_wall)
                 except Exception as _sw_err:
                     search_result = {"ok": False, "results": [],
                                      "ladder": [f"search lane abandoned after "
@@ -873,6 +894,14 @@ class ResearchScraperBridge:
                     break
 
         q_tokens_pinned = {t for t in re.split(r"[^a-z0-9]+", question.lower()) if len(t) > 3}
+        # PINNED-WALL (owner incident 04:55): each pinned scrape can wedge on
+        # captcha waits/JS; four pins with zero results then left no time
+        # for the ranked pool ("difi.az.gov/file-a-complaint | time budget
+        # reached" while it sat AT position 10 of the pool). Pins get a
+        # bounded share (25% of budget) with per-scrape 60s joins; after the
+        # share expires pins keep their POOL entry (still first in the read
+        # loop) but no browser time is spent harvesting their links.
+        _pin_share_end = time.time() + max(45.0, _budget * 0.25)
         for pu in list(dict.fromkeys(pinned_sources or []))[:12]:
             pu = str(pu).strip()
             if not pu:
@@ -883,8 +912,59 @@ class ResearchScraperBridge:
                                  "domain": dom or pu,
                                  "tier": self._get_tier(dom) if dom else "primary",
                                  "engine": "pinned"})
+            if time.time() > _pin_share_end:
+                search_plan.append({"category": "pinned", "query": pu[:100],
+                                    "ok": False, "n": 0,
+                                    "ladder": ["pinned share exhausted ("
+                                               "pool keeps the pin; no "
+                                               "extra scrapes)"]})
+                continue
             try:
-                pr = self.research_scrape(pu, max_chars=0)
+                _pw2 = __import__("concurrent.futures", fromlist=["x"])
+                _pin_pool = _pw2.ThreadPoolExecutor(max_workers=1)
+                _pin_ident: List[int] = []
+
+                def _pin_job() -> Dict[str, Any]:
+                    # same shed-on-owner rule as the main scrape lane: this
+                    # single-use worker owns the CDP client its fetch caches
+                    # under its ident, and a single-use ident never comes
+                    # back to pop it later.
+                    _pin_ident.append(threading.get_ident())
+                    try:
+                        return self.research_scrape(pu, max_chars=0)
+                    finally:
+                        try:
+                            import browser_session as _bs_pin
+                            _bs_pin.drop_connection()
+                        except Exception:
+                            pass
+
+                try:
+                    _pin_fut = _pin_pool.submit(_pin_job)
+                    pr = _pin_fut.result(timeout=60.0)
+                except Exception as _pin_err:
+                    try:
+                        import browser_session as _bs_pinw
+                        if _pin_ident:
+                            # a wedged pin scrape's worker may still hold
+                            # its connection; drop it by ident (the
+                            # runner-side drop_connection() would pop
+                            # nothing).
+                            _bs_pinw.drop_connection_ident(_pin_ident[-1])
+                        else:
+                            _bs_pinw.drop_connection()
+                    except Exception:
+                        pass
+                    search_plan.append({"category": "pinned", "query": pu[:100],
+                                        "ok": False, "n": 0,
+                                        "ladder": [f"pinned scrape wall "
+                                                   f"(60s): "
+                                                   f"{type(_pin_err).__name__} \
+"
+                                                   "— pool keeps the pin"]})
+                    continue
+                finally:
+                    _pin_pool.shutdown(wait=False, cancel_futures=True)
                 if not pr.get("ok"):
                     continue
                 n_follow = 0
@@ -1172,37 +1252,79 @@ class ResearchScraperBridge:
             # read. Every candidate goes to the scrape
             # lane; the post-scrape judge (same judge, full page body) owns
             # the verdict.
-            if self._scrape_slot is None:
-                self._scrape_slot = ThreadPoolExecutor(max_workers=2)
-                self._active_scrapes = set()
-            still_busy = {f for f in self._active_scrapes if f.running()}
-            self._active_scrapes = still_busy
-            if len(still_busy) >= 2:
-                skipped.append({"url": result["url"], "decision": "reject",
-                                "reason": "scrape wall: both scrape "
-                                          "workers wedged on earlier pages, "
-                                          "skipping further scrapes "
-                                          "this run"})
+            # WEDGE-PROOF SCRAPE LANE (owner incident 11-10): two LONG-LIVED
+            # scrape workers could wedge forever inside patchright's event
+            # loop (py-spy: both parked in select()) and every later page
+            # then read the "scrape wall" skip — the zero-page "done" runs.
+            # Every scrape now runs on a FRESH single-use executor (the same
+            # house pattern the resume lane already uses), bounded by its
+            # wall; a wedged call is abandoned, its CDP connection dropped,
+            # and repeated wedges abandon the browser lane for this run
+            # WITHOUT touching the shared browser itself.
+            _scrape_wedges = self._scrape_wedges
+            if _scrape_wedges >= self._SCRAPE_WEDGE_MAX:
+                skipped.append({"url": result["url"], "decision": "deprioritized",
+                                "reason": "browser scrape lane abandoned "
+                                          f"after {_scrape_wedges} wedges "
+                                          "this run (no forced browser respawn)"})
                 continue
-            _wall_fut = self._scrape_slot.submit(
-                self.research_scrape, result["url"],
-                max_chars=max_chars_per_page
-                if max_chars_per_page and max_chars_per_page > 0 else 0,
-                slot=slot, mode=proxy_res)
-            self._active_scrapes.add(_wall_fut)
+            _sw2 = __import__("concurrent.futures", fromlist=["x"])
+            _scrape_pool = _sw2.ThreadPoolExecutor(max_workers=1)
+            _worker_ident: List[int] = []
+
+            def _scrape_job() -> Dict[str, Any]:
+                # the fresh worker thread owns the CDP client this scrape
+                # creates (browser_session caches it under the thread's
+                # ident), so it sheds that client itself when the job ends:
+                # single-use threads never reuse an ident, so anything left
+                # behind leaks one node driver per scrape for the process
+                # lifetime, and no runner-side drop can pop it.
+                _worker_ident.append(threading.get_ident())
+                try:
+                    return self.research_scrape(
+                        result["url"],
+                        max_chars=max_chars_per_page
+                        if max_chars_per_page and max_chars_per_page > 0 else 0,
+                        slot=slot, mode=proxy_res)
+                finally:
+                    try:
+                        import browser_session as _bs_own
+                        _bs_own.drop_connection()
+                    except Exception:
+                        pass
+
             try:
-                scrape_result = _wall_fut.result(timeout=scrape_wall_s)
-            except Exception as _wall_err:
-                is_timeout = "timed out" in str(_wall_err) or \
-                    "TimeoutError" in type(_wall_err).__name__
-                scrape_result = {"ok": False, "url": result["url"],
-                                 "error": ("scrape wall ("
-                                           + str(scrape_wall_s)
-                                           + "s) exceeded"
-                                           if is_timeout else
-                                           "scrape worker error: "
-                                           + str(_wall_err)[:120])}
-            self._active_scrapes.discard(_wall_fut)
+                _wall_fut = _scrape_pool.submit(_scrape_job)
+                try:
+                    scrape_result = _wall_fut.result(timeout=scrape_wall_s)
+                except Exception as _wall_err:
+                    is_timeout = "timed out" in str(_wall_err) or \
+                        "TimeoutError" in type(_wall_err).__name__
+                    if is_timeout:
+                        _scrape_wedges += 1
+                        self._scrape_wedges = _scrape_wedges
+                        try:
+                            import browser_session as _bs_d
+                            if _worker_ident:
+                                # the wedged worker (a fresh thread each
+                                # time) may still hold its connection, and
+                                # drop_connection() can only pop the
+                                # CALLER's ident - so drop the worker's
+                                # client by ident instead.
+                                _bs_d.drop_connection_ident(_worker_ident[-1])
+                            else:
+                                _bs_d.drop_connection()
+                        except Exception:
+                            pass
+                    scrape_result = {"ok": False, "url": result["url"],
+                                     "error": ("scrape wall ("
+                                               + str(scrape_wall_s)
+                                               + "s) exceeded"
+                                               if is_timeout else
+                                               "scrape worker error: "
+                                               + str(_wall_err)[:120])}
+            finally:
+                _scrape_pool.shutdown(wait=False, cancel_futures=True)
             if not scrape_result.get("ok"):
                 skipped.append({"url": result["url"], "decision": "reject",
                                 "reason": (scrape_result.get("error") or "scrape failed")[:160]})
@@ -1508,6 +1630,49 @@ class ResearchScraperBridge:
                 rejected.append(entry)
         for e in rejected_by_gate:
             rejected.append({k: e.get(k) for k in ("url", "decision", "reason")})
+
+        # SECOND-PASS REFILL: when the judge killed most of the scraped set
+        # (junk-heavy search pool burned the page cap), re-open the cap and
+        # scrape the urls that were deprioritized by cap — judged by the same
+        # semantic judge, same clean gates. Without this, a run can end with
+        # 0 accepted pages while the GOOD urls sit in skipped[].
+        if len(accepted) < max(2, (max_pages or 0) // 2):
+            _cap_blocked = [s["url"] for s in skipped
+                            if s.get("decision") == "deprioritized"
+                            and "page cap" in str(s.get("reason") or "")]
+            _refill_budget = max(60.0, (deadline - time.time()) * 0.7)
+            _refill_deadline = min(scrape_deadline, time.time() + _refill_budget)
+            for _u in _cap_blocked[:max_pages * 2]:
+                if time.time() > _refill_deadline:
+                    break
+                try:
+                    _sr = self.research_scrape(_u, max_chars=max_chars_per_page
+                                               if max_chars_per_page and
+                                               max_chars_per_page > 0 else 0,
+                                               slot=slot, mode=proxy_res)
+                except Exception as _e:
+                    _sr = {"ok": False, "url": _u,
+                           "error": f"refill scrape error: {str(_e)[:100]}"}
+                if not _sr.get("ok"):
+                    skipped.append({"url": _u, "decision": "reject",
+                                    "reason": ("refill: " + str(_sr.get("error") or "scrape failed"))[:160]})
+                    continue
+                _cl = _page_clean.clean_page(_sr)
+                _canon = _cl.get("canonical_url") or _u
+                if _canon in canonical_seen or _cl.get("boilerplate_ratio", 0) >= _page_clean.BOILERPLATE_KILL_RATIO:
+                    continue
+                canonical_seen.add(_canon)
+                _pg = {**_sr, "clean": _cl, "relevance": None}
+                _rel2 = (_relevance.judge_pages(question, [_pg]) or [{}]) if _relevance.judge_available() else [{}]
+                _pg["relevance"] = (_rel2[0] or {}) if isinstance(_rel2, list) and _rel2 else {}
+                _dec2 = str((_pg["relevance"] or {}).get("decision") or "quarantine")
+                if _dec2 == "accept" and ((_pg["relevance"] or {}).get("relevance_score", 0) >= (min_accept_score if min_accept_score != _relevance.ACCEPT_SCORE else 0)):
+                    accepted.append(_pg)
+                    skipped.append({"url": _u, "decision": "resumed",
+                                    "reason": "second-pass refill scraped+judged"})
+                else:
+                    rejected.append({"url": _u, "decision": _dec2,
+                                     "reason": "refill: " + _cap_reason(((_pg['relevance'] or {}).get('reason') or 'judge reject'))[:120]})
 
         judged_map = {p["url"]: (p.get("relevance") or {}) for p in accepted}
         accepted = _relevance.rank_results(question, accepted, judged=judged_map)
