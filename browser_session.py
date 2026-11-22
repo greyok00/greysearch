@@ -567,6 +567,23 @@ def drop_connection() -> None:
         except Exception:
             pass
 
+def drop_connection_ident(ident: int) -> bool:
+    """Drop the CDP client cached under ANOTHER thread's ident, from any
+    thread. The scrape wedge handler runs on the runner thread while the
+    wedged scrape worker (a fresh single-use thread each call) may still
+    hold its connection, and drop_connection() can only pop the caller's
+    own ident; stopping that driver from outside is the same move
+    drop_all_connections() already makes. True if a client was dropped."""
+    with _CONN_LOCK:
+        conn = _CONNECTIONS.pop(ident, None)
+    if not conn:
+        return False
+    try:
+        conn["pw"].stop()
+    except Exception:
+        pass
+    return True
+
 def drop_all_connections() -> None:
     """Stop every cached CDP client, in every thread. Short-lived CLIs call
     this before exit so patchright's node driver exits with them; without it

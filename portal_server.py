@@ -1107,7 +1107,18 @@ def _insert_chosen_images(md_text: str, chosen: list, gpath: Path) -> str:
         lf = c.get("file")
         if lf:
             src = Path(lf)
-            if src.is_file():
+            # containment: a chosen "file" is only ever a candidate the run
+            # itself downloaded into this guide's own tree (the _imgcand dir
+            # beside it). Copying any caller-supplied path would let a
+            # crafted build request move arbitrary readable local files
+            # into the web-served guides tree, so a source outside the
+            # guide's directory falls back to the remote url exactly like a
+            # missing copy always did.
+            try:
+                inside = src.resolve().relative_to(gpath.parent.resolve())
+            except ValueError:
+                inside = None
+            if inside is not None and src.is_file():
                 dest = gpath.parent / f"chosen-{i}-{src.name}"
                 if not dest.is_file() \
                         or dest.read_bytes() != src.read_bytes():
@@ -1199,7 +1210,10 @@ def api_build(run_id: str):
         run = {"result": {"question": reg.get("query") or "",
                           "master_guide": {"path": reg["guide_path"]}},
                "latest_refine": {}}
-    body = request.get_json(force=True, silent=True) or {}
+    # application/json only (no force=True): a text/plain cross-origin form
+    # post must not be parsed into a build request, and the real station
+    # UI always sends the header.
+    body = request.get_json(silent=True) or {}
     theme = (body.get("theme") or "master").strip()
     chosen = [c for c in (body.get("images") or []) if c]
 
