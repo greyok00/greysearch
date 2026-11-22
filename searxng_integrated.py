@@ -765,6 +765,58 @@ class SearXNGEngineManager:
             self.test_engines()
         return list(self.working_engines)
 
+    def _local_working_truth(self) -> List[str]:
+        """TRUTH LAW (owner 11-10): engine state must be verified against
+        reality, never against a probe sweep that the instance's own
+        single-search limiter can starve. Order: cached process state →
+        disk engine-status cache → ONE REAL unfiltered /search against the
+        LOCAL instance. The real query is the verdict: returning results
+        means the local lane works, whatever any probe said."""
+        if self.working_engines:
+            return list(self.working_engines)
+        try:
+            stats = self.get_engine_stats()
+        except Exception:
+            stats = {}
+        if stats.get("working_engines"):
+            return list(stats["working_engines"])
+        try:
+            if _load_engine_cache(_engine_cache_path()):
+                cached = _ENGINE_CACHE.get("engines") or {}
+                working = [e for e, st in cached.items()
+                           if isinstance(st, dict) and st.get("working")]
+                if working:
+                    self.working_engines = working
+                    return list(working)
+        except Exception:
+            pass
+        try:
+            for base_url in self.searxng_urls:
+                params = {"q": "test", "format": "json",
+                          "safesearch": 0}
+                _u = f"{base_url}/search?{urllib.parse.urlencode(params)}"
+                _req = urllib.request.Request(_u, headers=_UA_HEADERS)
+                with urllib.request.urlopen(_req, timeout=25.0) as _resp:
+                    if _resp.status == 200:
+                        _data = json.loads(_resp.read().decode("utf-8"))
+                        n = len(_data.get("results") or [])
+                        if n > 0:
+                            self.working_engines = ["default+fullset"]
+                            self.engine_stats = {
+                                "default+fullset": {
+                                    "working": True,
+                                    "response_time": 0,
+                                    "error": None,
+                                    "rate_limited": False,
+                                    "last_tested": time.time(),
+                                    "verified_by": "real unfiltered query",
+                                }}
+                            _save_engine_cache(self.engine_stats)
+                            return list(self.working_engines)
+        except Exception:
+            pass
+        return []
+
     def _fullset_first(self, query: str, cat: str, safe_search: int,
                        time_range: str, language: str,
                        merged: List[Dict[str, Any]],
@@ -815,7 +867,11 @@ class SearXNGEngineManager:
                 _u = f"{base_url}/search?{urllib.parse.urlencode(_vp)}"
                 try:
                     _req = urllib.request.Request(_u, headers=_UA_HEADERS)
-                    with urllib.request.urlopen(_req, timeout=12) as _resp:
+                    # 30s: the local instance answers a full-set query in
+                    # ~15s under upstream stalls (measured 3x, 11-10) —
+                    # the old 12s cut off the STRONGEST lane while slower
+                    # rescue lanes still got through.
+                    with urllib.request.urlopen(_req, timeout=30.0) as _resp:
                         if _resp.status == 200:
                             _data = json.loads(_resp.read().decode("utf-8"))
                             for _r in _data.get("results", []):
@@ -949,18 +1005,23 @@ class SearXNGEngineManager:
                 else:
                     ladder.append("local: DOWN (skipped, automatic searx.space switch)")
         else:
-            working_engines = self.get_working_engines()
+            working_engines = self._local_working_truth()
             if not working_engines:
-                self.test_engines(force=True)
-                working_engines = self.get_working_engines()
-            if not working_engines:
-                last_error = "local SearXNG alive but no working engines"
-                ladder.append("local: alive but no working engines "
-                              "(engine probes failed, see engine_stats)")
-            elif self._fullset_first(query, cat, safe_search, time_range,
-                                    language, merged, seen_urls, ladder,
-                                    selected=selected,
-                                    engines_tried=engines_tried):
+                # the truth check's one probe query came back empty, but
+                # that is not proof the lane is dead: a starved limiter, a
+                # stale engine cache, or an odd response to the "test"
+                # probe query all read the same. The lane still gets its
+                # one real _fullset_first attempt (the real query is the
+                # verdict); if that fails too, the ladder says so below
+                # and the public rungs take over - a stale-empty cache
+                # must not brick the primary rung.
+                working_engines = ["default+fullset"]
+                ladder.append("local: no verified working engines; "
+                              "trying the real query anyway")
+            if self._fullset_first(query, cat, safe_search, time_range,
+                                   language, merged, seen_urls, ladder,
+                                   selected=selected,
+                                   engines_tried=engines_tried):
                 pass
             else:
                 engines_to_try = [e for e in working_engines if e in GENERAL_FIRST] + \
@@ -986,7 +1047,7 @@ class SearXNGEngineManager:
                             search_url = f"{base_url}/search?{urllib.parse.urlencode(params)}"
                             req = urllib.request.Request(search_url, headers=_UA_HEADERS)
                             try:
-                                with urllib.request.urlopen(req, timeout=10) as response:
+                                with urllib.request.urlopen(req, timeout=30.0) as response:
                                     if response.status == 200:
                                         data = json.loads(response.read().decode('utf-8'))
                                         for r in data.get("results", []):
@@ -1031,7 +1092,7 @@ class SearXNGEngineManager:
                             _u = f"{base_url}/search?{urllib.parse.urlencode(params_u)}"
                             try:
                                 _req = urllib.request.Request(_u, headers=_UA_HEADERS)
-                                with urllib.request.urlopen(_req, timeout=10) as _resp:
+                                with urllib.request.urlopen(_req, timeout=30.0) as _resp:
                                     if _resp.status == 200:
                                         _data = json.loads(_resp.read().decode("utf-8"))
                                         for r in _data.get("results", []):
@@ -1431,7 +1492,15 @@ class SearXNGEngineManager:
             return ""
 
     def get_engine_stats(self) -> Dict[str, Any]:
-        """Statistics for all engines."""
+        """Statistics for all engines. TRUTH LAW (owner, 11-10): a health
+        call that comes before any engine test must not report a working
+        server as engineless — measure the instance for real, right here,
+        instead of echoing empty process state."""
+        if not self.engine_stats:
+            try:
+                self.test_engines()
+            except Exception:
+                pass
         return {
             "engine_stats": self.engine_stats.copy(),
             "working_engines": list(self.working_engines),
