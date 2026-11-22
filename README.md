@@ -49,7 +49,7 @@ $ greysearch-doctor
   [OK ] search_lanes   direct lanes answered (ddg-html, wikipedia-api)
   [OK ] browser_slots  launched on demand, isolated profile
   [OK ] portal         up on 127.0.0.1:8791
-  [OK ] kit_source     17 themes found
+  [OK ] kit_source     18 themes found
  verdict: ALL HEALTHY
 ```
 
@@ -105,7 +105,7 @@ unsourced summary.
 ### 5. Publish
 
 The same research record can become a Markdown guide, a themed static site with
-pagination and a table of contents, or a print-ready PDF. Seventeen themes ship
+pagination and a table of contents, or a print-ready PDF. Eighteen themes ship
 with the site builder. A chosen image is copied into the guide's own tree only
 when it resolves there; anything else falls back to the remote URL, so a build
 request cannot move arbitrary readable local files into the web-served guides
