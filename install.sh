@@ -71,8 +71,10 @@ python bin/greysearch-doctor.py || {
     exit 1
 }
 
-printf '\n\033[32minstalled.\033[0m Start the portal with:\n'
-printf '  . .venv/bin/activate && python bin/greysearch-portal.py\n'
+printf '\n\033[32minstalled.\033[0m Start the station with:\n'
+printf '  \033[1mgreysearch\033[0m   (opens the portal + browser; the systemd unit\n'
+printf '              above autostarts the server on login)\n'
+printf '  fallback: . .venv/bin/activate && python bin/greysearch-portal.py\n'
 
 # A systemd user unit must run the portal through THIS install's venv
 # interpreter at THIS install's path. Render the template accordingly
@@ -91,6 +93,17 @@ if [ -d "${HOME}/.config" ] && command -v systemctl >/dev/null 2>&1; then
         note "could not render the systemd user unit (non-fatal); start the"
         note "  portal with the command above instead"
     fi
+fi
+
+# The `greysearch` command: station launcher (portal + browser, plus the
+# library/runs/search/stop subcommands). Shim points at THIS install's bin.
+if mkdir -p "${HOME}/.local/bin" && printf '%s\n' \
+'#!/usr/bin/env bash' \
+'# greysearch - launch the research station UI (portal + browser).' \
+'exec "'"$HERE"'/bin/greysearch" "$@"' \
+> "${HOME}/.local/bin/greysearch" 2>/dev/null \
+   && chmod +x "${HOME}/.local/bin/greysearch"; then
+    note "installed launcher: ~/.local/bin/greysearch - run: greysearch"
 fi
 
 # ---- captcha models (optional, pinned) --------------------------------------
@@ -127,6 +140,11 @@ vendor_captcha_model() {
         case "$line" in ''|\#*) continue ;; esac
         set -- $line
         hash="$1"; rel="$2"; file="$tree_root/$rel"
+        # a fresh clone tracks only files, never the empty models/yolo and
+        # models/clip dirs - create each pin's parent or every curl in Pass
+        # 2 dies with "Failed to create the file" and the rung silently
+        # never installs.
+        mkdir -p "$(dirname "$file")"
         case "$rel" in
             models/clip/bpe_simple_vocab_16e6.txt.gz)
                 url="https://github.com/openai/CLIP/raw/main/clip/$(basename "$rel")" ;;
