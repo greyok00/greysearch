@@ -368,7 +368,14 @@ def _thin_fill(query: str, result: dict, search_proxy=None) -> None:
       4. thresholds are never lowered to hit a page-count target: a fill
          that survives with too few pages is reported as a thin run.
 
-    Every outcome, success or failure, is recorded, never swallowed."""
+    Every outcome, success or failure, is recorded, never swallowed.
+
+    WALL LAW (owner incident 05:34): the fill runs INSIDE the caller's wall
+    when one is declared (fill_lane_budget_left_s on the result); every fill
+    scrape is a FRESH single-use executor join bounded to fill_scrape_wall_s
+    (120s), so a wedged browser call can never again stretch the fill past
+    the caller's patience — wedges count, drop the CDP connection, and after
+    3 the fill stops calling the browser at all this run."""
     import page_clean as _page_clean
     import relevance as _relevance
 
@@ -393,7 +400,17 @@ def _thin_fill(query: str, result: dict, search_proxy=None) -> None:
             have = {p["url"] for p in result.get("pages_fetched", [])}
             fresh = [r for r in lad["results"] if r.get("url") not in have]
             bridge = get_bridge()
-            deadline = time.time() + _THIN_FILL_BUDGET_S
+            # WALL LAW: the fill keeps the caller's remaining wall, capped
+            # by its own budget - the lane budget the deep run recorded
+            # (fill_lane_budget_left_s), not a fixed 90s, is what bounds the
+            # fill when the run is nearly out of wall.
+            _fill_left = result.get("fill_lane_budget_left_s")
+            try:
+                _fill_left = float(_fill_left)
+            except (TypeError, ValueError):
+                _fill_left = _THIN_FILL_BUDGET_S
+            deadline = time.time() + max(0.0, min(_THIN_FILL_BUDGET_S,
+                                                  _fill_left))
             gated: list = []
             for r in fresh:
                 dom = r.get("domain") or bridge._extract_domain(r.get("url", ""))
@@ -411,12 +428,39 @@ def _thin_fill(query: str, result: dict, search_proxy=None) -> None:
                 r["prefilter"] = pf
                 gated.append(r)
             fill["prefilter_kept"] = len(gated)
+            _fill_wedge_wall = float(os.environ.get(
+                "GREYSEARCH_FILL_SCRAPE_WALL_S", "120"))
+            _fill_wedges = 0
             candidates: list = []
             for r in gated[:_THIN_FILL_LIMIT]:
                 if time.time() > deadline:
                     fill["errors"].append("fill scrape budget reached")
                     break
-                sr = bridge.research_scrape(r["url"])
+                if _fill_wedges >= 3:
+                    fill["errors"].append(
+                        "fill browser lane abandoned after 3 wedges this run")
+                    break
+                _fw = __import__("concurrent.futures", fromlist=["x"])
+                _fpool = _fw.ThreadPoolExecutor(max_workers=1)
+                try:
+                    _ff = _fpool.submit(bridge.research_scrape, r["url"])
+                    sr = _ff.result(timeout=_fill_wedge_wall)
+                except Exception as _fe:
+                    if "timed out" in str(_fe) or \
+                            "TimeoutError" in type(_fe).__name__:
+                        _fill_wedges += 1
+                        try:
+                            import browser_session as _bs_d2
+                            _bs_d2.drop_connection()
+                        except Exception:
+                            pass
+                    sr = {"ok": False, "url": r["url"],
+                          "error": (f"fill scrape wall ({_fill_wedge_wall}s)"
+                                    if ("timed out" in str(_fe) or
+                                        "TimeoutError" in type(_fe).__name__)
+                                    else f"fill scrape error: {str(_fe)[:120]}")}
+                finally:
+                    _fpool.shutdown(wait=False, cancel_futures=True)
                 if not sr.get("ok"):
                     fill["errors"].append(
                         f"scrape {r['url'][:80]}: {str(sr.get('error'))[:120]}")
@@ -603,7 +647,20 @@ def _execute_deep(query: str, categories: Optional[List[str]],
                            pinned_sources=list(pinned or []),
                            search_proxy=search_proxy)
     if len(result.get("pages_fetched", [])) < 3:
+        # thin-fill is a rescue lane, not a second run: a deep call's total
+        # wall stays ~budget + fill budget. Owner incident 05:34: fill+
+        # captcha waits+lane joins stacked to 14+ min past a 240s budget
+        # with zero pages. The fill keeps the remaining wall, capped, then
+        # the run returns honestly with whatever it has.
+        result["fill_lane_budget_left_s"] = round(max(45.0, budget * 2.4 - (
+            time.time() - result.get("started_ts", time.time()))), 1) \
+            if isinstance(result.get("started_ts"), (int, float)) else None
+        _tf0 = time.time()
         _thin_fill(query, result, search_proxy=search_proxy)
+        # _thin_fill honors GREYSEARCH-style wall via its own budget; the
+        # elapsed bookkeeping below states the real number for the ladder
+        result.setdefault("wall_accounting", {})["thin_fill_s"] = round(
+            time.time() - _tf0, 1)
         fill = result.get("fill_lane") or {}
         result["ladder_lane"] = (str(fill.get("ladder_source") or "")
                                  if isinstance(fill.get("ladder_source", ""), str) else "")
@@ -1279,6 +1336,16 @@ def _bind_slot(task_id: str = "") -> tuple:
                         "the task registry; refusing to hand out a lane the "
                         "next client cannot see ("
                         + str(_tr)[:160] + ")") from _tr
+                # RESEARCH_TASK is the documented mechanism the searx.space
+                # browser rung reads when it resolves its slot on a fresh
+                # thread (browser_session's env fallback). It is PROCESS-WIDE
+                # state, so this only stays correct under the single-process
+                # assumption: one dispatch server per process, and a caller
+                # must take the slot AFTER the busy/slot checks pass (see
+                # dispatch) — a rejected or racing call never rewrites the
+                # env out from under the run that holds the lock. A second
+                # greysearch process keeps its own env copy anyway; its
+                # lanes are governed by the registry and ports, not here.
                 os.environ["RESEARCH_TASK"] = tid
                 note = (f"task slot assigned: {tid} (port {port}, "
                         "registry written)")
@@ -1306,6 +1373,9 @@ def _bind_slot(task_id: str = "") -> tuple:
                     "the task registry; refusing to hand out a lane the "
                     "next client cannot see ("
                     + str(_tr)[:160] + ")") from _tr
+            # same env write, same single-process assumption (see above):
+            # process-wide RESEARCH_TASK names this run's lane for the
+            # searx.space browser rung's fresh-thread resolver.
             os.environ["RESEARCH_TASK"] = tid
             note = (f"new browser lane spawned: {tid} (port {port}"
                     f"{'' if want else ', all lanes busy'}, registry written)")
@@ -1330,12 +1400,18 @@ def _slot_map() -> Dict[str, dict]:
         entry = reg.get(tid) or {}
         pid = entry.get("pid")
         owner_alive = False
-        if isinstance(pid, int) and pid > 0 and pid != os.getpid():
-            try:
-                os.kill(pid, 0)
+        if isinstance(pid, int) and pid > 0:
+            if pid == os.getpid():
+                # Health is served by the owner itself. Excluding self made a
+                # live slot look dead in every health response (and confused
+                # the operator into chasing a phantom stale PID).
                 owner_alive = True
-            except OSError:
-                owner_alive = False
+            else:
+                try:
+                    os.kill(pid, 0)
+                    owner_alive = True
+                except OSError:
+                    owner_alive = False
         out[tid] = {
             "port": port,
             "cdp_alive": _cdp_answers(port),
@@ -1455,13 +1531,17 @@ def dispatch(name: str, args: dict) -> dict:
         keep_raw = bool(args.get("keep_raw_html", False))
 
         if url:
+            # busy check FIRST: binding a lane rewrites the process-wide
+            # RESEARCH_TASK env and the slot registry, so a request that is
+            # about to be rejected as busy must never do that out from
+            # under the run that holds the lock.
+            if _DEEP_LOCK.locked():
+                return _busy_response("one-URL scrape needs the private browser")
             try:
                 _tid, _note = _bind_slot(str(args.get("task_id") or ""))
             except ValueError as be:
                 return {"ok": False, "busy": True, "error": str(be),
                         "browser_slots": _slot_map()}
-            if _DEEP_LOCK.locked():
-                return _busy_response("one-URL scrape needs the private browser")
             fut = _BROWSER_EXEC.submit(_guarded_url_scrape, url)
             try:
                 r = fut.result(timeout=_one_url_reply_s())
