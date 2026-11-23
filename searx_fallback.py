@@ -8,8 +8,33 @@ The searx.space discovery source is hardcoded and must never be bypassed.
 """
 import urllib.request, urllib.parse, json, time, random, re, os, ssl
 import base64
+import threading
 
 import proxy_mode as _proxy_mode
+
+
+def _call_bounded(fn, timeout, *args, **kwargs):
+    """Run one call on a daemon thread and wait at most `timeout` seconds.
+    A socket timeout cannot stop a slow-drip handshake (every dribble
+    resets the read deadline), so the only honest cap on a hostile peer is
+    a join: when the deadline passes the caller moves on and the daemon
+    dies with the process. Returns None when the call overstayed."""
+    box: dict = {}
+
+    def _go():
+        try:
+            box["r"] = fn(*args, **kwargs)
+        except BaseException as e:  # noqa: BLE001 - recorded, not raised
+            box["e"] = e
+
+    t = threading.Thread(target=_go, daemon=True)
+    t.start()
+    t.join(timeout)
+    if t.is_alive():
+        return None
+    if "e" in box:
+        raise box["e"]
+    return box.get("r")
 
 try:
     import tuning as _tuning
@@ -609,7 +634,7 @@ def _owner_first_urls(urls):
     return out
 
 def browser_search_public(query, max_results=10, instances=None, timeout=45,
-                          need=None):
+                          need=None, lane_cap_s=None):
     """Search the two priority public SearXNG instances in a real browser.
 
     Human-pace rules:
@@ -633,8 +658,13 @@ def browser_search_public(query, max_results=10, instances=None, timeout=45,
     del _GOOGLE_LANE_RECORDS[:]
     del _BING_LANE_RECORDS[:]
     _floor = _tuning.scaled("pace_floor_s") if _tuning else 8.0
-    _lane_end = time.time() + float(
-        os.environ.get("GREYSEARCH_BROWSER_LANE_CAP_S") or 480.0)
+    _cap_env = float(os.environ.get("GREYSEARCH_BROWSER_LANE_CAP_S") or 480.0)
+    if lane_cap_s is not None:
+        try:
+            _cap_env = min(_cap_env, max(20.0, float(lane_cap_s)))
+        except (TypeError, ValueError):
+            pass
+    _lane_end = time.time() + _cap_env
     _skipped_cap = 0
     pace_wait(_floor)
     global _LAST_BROWSER_SEARCH
@@ -1135,7 +1165,8 @@ def _direct_search(query, max_results=10, mode=None):
 
     return out
 
-def search(query, max_results=12, timeout=15, engines=None, search_proxy=None):
+def search(query, max_results=12, timeout=15, engines=None, search_proxy=None,
+           budget_s=None):
     """The ladder: optional local :8888 → searx.space instances → direct keyless lanes.
 
     The searx.space instance lane is not dead: the JSON API is bot-walled
@@ -1187,13 +1218,19 @@ def search(query, max_results=12, timeout=15, engines=None, search_proxy=None):
 
     insts = _harvest_instances(mode=proxy_res) if external_ok else []
     budget = float(os.environ.get("GREYSEARCH_INSTANCE_BUDGET_S", "15") or 15)
+    if budget_s is not None:
+        try:
+            budget = min(budget, max(1.0, float(budget_s)))
+        except (TypeError, ValueError):
+            pass
     per_instance = float(os.environ.get("GREYSEARCH_INSTANCE_TIMEOUT_S", "5") or 6)
     deadline = time.time() + budget
     for inst in insts[:10]:
         if time.time() > deadline:
             break
-        rs = _search_via_instance(inst, query, max_results, timeout=per_instance,
-                                  mode=proxy_res)
+        rs = _call_bounded(_search_via_instance, per_instance + 3.0,
+                           inst, query, max_results, timeout=per_instance,
+                           mode=proxy_res)
         if rs:
             return {"ok": True, "source": f"searx.space: {inst}", "results": rs,
                     "ladder": ladder + ["local", inst]}
@@ -1208,8 +1245,14 @@ def search(query, max_results=12, timeout=15, engines=None, search_proxy=None):
     _pace = []
     try:
         if external_ok and use_browser_lane and time.time() < deadline + 20:
+            _lane_cap = float(os.environ.get(
+                "GREYSEARCH_BROWSER_LANE_CAP_S") or 480.0)
+            _left_lane = deadline + 20 - time.time()
+            if _left_lane > 0:
+                _lane_cap = min(_lane_cap, max(20.0, _left_lane))
             brs = browser_search_public(query, max_results=max_results,
-                                        instances=browser_urls[:4], timeout=20)
+                                        instances=browser_urls[:4], timeout=20,
+                                        lane_cap_s=_lane_cap)
             _holds = _captcha_holds()
             _pace = pace_wait_records()
         else:

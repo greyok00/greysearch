@@ -391,7 +391,11 @@ def _thin_fill(query: str, result: dict, search_proxy=None) -> None:
         except Exception:
             _fill_engines = None
         lad = _sf.search(query, max_results=10, engines=_fill_engines,
-                         search_proxy=search_proxy)
+                         search_proxy=search_proxy,
+                         budget_s=(float(result["fill_lane_budget_left_s"])
+                                   if isinstance(
+                                       result.get("fill_lane_budget_left_s"),
+                                       (int, float)) else None))
         fill["searched"] = True
         if not (lad.get("ok") and lad.get("results")):
             fill["errors"].append(f"ladder search: {lad.get('source', 'no results')}")
@@ -641,11 +645,12 @@ def _refresh_run_report(result: dict) -> None:
 
 def _execute_deep(query: str, categories: Optional[List[str]],
                   max_results: int, budget: float, pinned=None,
-                  search_proxy=None) -> dict:
+                  search_proxy=None, progress=None) -> dict:
     result = research_deep(query, categories=categories, max_pages=max_results,
                            max_total_seconds=budget,
                            pinned_sources=list(pinned or []),
-                           search_proxy=search_proxy)
+                           search_proxy=search_proxy,
+                           progress_cb=progress)
     if len(result.get("pages_fetched", [])) < 3:
         # thin-fill is a rescue lane, not a second run: a deep call's total
         # wall stays ~budget + fill budget. Owner incident 05:34: fill+

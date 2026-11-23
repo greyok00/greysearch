@@ -64,8 +64,23 @@ def main(argv=None) -> int:
 
     write_path = _resolve_guide_path(a.write_guide_to or None, a.query)
     started = time.time()
+
+    def _progress(stage, data=None):
+        # the run used to print NOTHING until the very end, so every slow
+        # phase (preflight pings, instance probing, the browser search
+        # lane, scrapes) looked like a crash. A one-line timestamped
+        # heartbeat per stage keeps the caller oriented.
+        try:
+            d = (data or {})
+            print(f"[{round(time.time() - started, 1):>7}s] {stage}"
+                  + (f" {str(d.get('note') or '')[:90]}" if d else ""),
+                  file=sys.stderr, flush=True)
+        except Exception:
+            pass
+
     try:
-        result = _execute_deep(a.query, None, max_pages, budget)
+        result = _execute_deep(a.query, None, max_pages, budget,
+                               progress=_progress)
     except Exception as e:
         print(json.dumps({"ok": False,
                           "error": f"{type(e).__name__}: {str(e)[:200]}"},
@@ -89,11 +104,18 @@ def main(argv=None) -> int:
                     "import sys; sys.path.insert(0, %r); "
                     "import greysearch_site_builder as m; sys.exit(m.render())"
                     % str(REPO)]
+        # the builder downloads up to 40 images serially at 10-25s each, so
+        # a fixed 240s cap can outlive the whole run wall; it gets the run's
+        # REMAINING time instead, floored at 30s.
+        _left = budget - (time.time() - started)
+        _site_timeout = max(30.0, min(240.0, _left if _left > 0 else 30.0))
+        _progress("site_build", {"note": f"wall {round(_site_timeout)}s"})
         pr = subprocess.run(
             _cmd + [str(guide_path), "-o", str(site_dir),
                     "--theme", a.theme, "--title", f"{a.query[:100]}",
                     "--max-images", "40"],
-            capture_output=True, text=True, timeout=240, cwd=str(REPO))
+            capture_output=True, text=True, timeout=_site_timeout,
+            cwd=str(REPO))
         site_ok = (site_dir / "index.html").is_file()
         if site_ok:
             site_out = str(site_dir)

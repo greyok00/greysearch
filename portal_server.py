@@ -57,6 +57,8 @@ _ROW_MILESTONES = frozenset({
 
 import proxy_mode as _proxy_mode
 
+_THREAD_SLEEP = time.sleep
+
 # Library bridge: ingestor core, imported lazily so the portal keeps
 # serving even when the knowledge-ingestor is absent (library shows
 # "unavailable" instead of crashing the research station).
@@ -2140,13 +2142,17 @@ def _sweep_stale_rows() -> list:
 
 
 def _janitor():
+    # the janitor outlives any single request, so it sleeps on the
+    # interpreter's original time.sleep: a background thread borrowing the
+    # module-global name records 60s into any test that patches time.sleep.
+    _sleep = _THREAD_SLEEP
     while True:
         try:
             _janitor_sweep()
             _sweep_stale_rows()
         except Exception:
             pass
-        time.sleep(60)
+        _sleep(60)
 
 _start_janitor = threading.Thread(
     target=_janitor, daemon=True, name="gr-janitor").start()

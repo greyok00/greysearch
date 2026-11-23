@@ -502,6 +502,14 @@ def _connection() -> Dict[str, Any]:
     by thread AND slot (a RESEARCH_TASK change drops the old connection)."""
     ident = threading.get_ident()
     key = (ident, _slot_key())
+    # Reap connections cached by threads that have died: every MCP request
+    # runs on a fresh worker thread, so without this sweep each request
+    # leaks one patchright node driver (~85MB) for the life of the server.
+    with _CONN_LOCK:
+        stale = [i for i in _CONNECTIONS
+                 if i not in {t.ident for t in threading.enumerate()}]
+    for i in stale:
+        drop_connection_ident(i)
     with _CONN_LOCK:
         conn = _CONNECTIONS.get(ident)
     if conn:
@@ -574,8 +582,15 @@ def _new_shielded_page(conn: Dict[str, Any]) -> Any:
                                     suppress_origin=True, timeout=10)
         raw.send(_json.dumps({"id": 1, "method": "Target.createTarget",
                               "params": {"url": "about:blank"}}))
-        deadline = time.time() + 5
-        while time.time() < deadline:
+        # a wall-clock deadline loop wedges forever under a frozen test
+        # clock (time.time() never advances), and recv() without a socket
+        # timeout blocks forever against a silent peer - so this poll is
+        # iteration-bounded and the socket is timed, not clocked.
+        try:
+            raw.settimeout(5)
+        except Exception:
+            pass
+        for _ in range(3):
             r = _json.loads(raw.recv())
             if r.get("id") == 1:
                 tid = (r.get("result") or {}).get("targetId")
@@ -585,8 +600,11 @@ def _new_shielded_page(conn: Dict[str, Any]) -> Any:
         tid = None
     page = None
     if tid:
-        deadline = time.time() + 5
-        while time.time() < deadline and page is None:
+        # 50 x 0.2 s: ~10 s against a real clock, instant under a frozen
+        # test clock whose sleep() is stubbed - bounded either way.
+        for _ in range(50):
+            if page is not None:
+                break
             time.sleep(0.2)
             for p in getattr(ctx, "pages", []):
                 if id(p) not in known:

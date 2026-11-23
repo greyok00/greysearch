@@ -376,6 +376,10 @@ def test_fetch_text_solved_path_proceeds_with_mark(monkeypatch):
     states = [PRESENT, TOKEN, TOKEN]
     pg = _FakePage(states, body=body)
     monkeypatch.setattr(bs, "_connection", lambda: {"ctx": _ctx_of(pg)})
+    # hermetic: never probe the live slot browser (or any websocket) from a
+    # unit test - adopt the fake ctx's new_page directly.
+    monkeypatch.setattr(bs, "_new_shielded_page",
+                        lambda conn: conn["ctx"].new_page())
     monkeypatch.setattr(bs._rij, "sanitize_text", lambda t: (t, []))
     monkeypatch.setattr(bs, "_clean_text", lambda t: t.strip())
     res = bs.fetch_text("https://example.three/solved-page")
@@ -395,6 +399,10 @@ def test_fetch_text_no_captcha_ordinary(monkeypatch):
     body = "Ordinary page body for the no-captcha case. "
     pg = _FakePage([CLEAR], body=body)
     monkeypatch.setattr(bs, "_connection", lambda: {"ctx": _ctx_of(pg)})
+    # hermetic: never probe the live slot browser (or any websocket) from a
+    # unit test - adopt the fake ctx's new_page directly.
+    monkeypatch.setattr(bs, "_new_shielded_page",
+                        lambda conn: conn["ctx"].new_page())
     monkeypatch.setattr(bs._rij, "sanitize_text", lambda t: (t, []))
     monkeypatch.setattr(bs, "_clean_text", lambda t: t.strip())
     res = bs.fetch_text("https://example.three/plain")
@@ -634,6 +642,10 @@ def _wired_pg(monkeypatch, pg):
     """Wire a fake page into fetch_text exactly the way the neighboring
     fetch-flow tests do."""
     monkeypatch.setattr(bs, "_connection", lambda: {"ctx": _ctx_of(pg)})
+    # hermetic: never probe the live slot browser (or any websocket) from a
+    # unit test - adopt the fake ctx's new_page directly.
+    monkeypatch.setattr(bs, "_new_shielded_page",
+                        lambda conn: conn["ctx"].new_page())
     monkeypatch.setattr(bs._rij, "sanitize_text", lambda t: (t, []))
     monkeypatch.setattr(bs, "_clean_text", lambda t: t.strip())
 

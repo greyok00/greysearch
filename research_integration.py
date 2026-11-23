@@ -23,6 +23,7 @@ import os
 import random
 import re
 import sys
+import queue
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -67,6 +68,58 @@ SEARCH_LADDER_MAX = 20
 
 _PREFLIGHT_TIMEOUT_S = 5.0
 _PREFLIGHT_GAP_S = 3.0
+
+
+class _WallThreadPool:
+    """A one-slot worker pool on a DAEMON thread with the same
+    submit()/result(timeout=)/shutdown() surface the search-lane
+    ThreadPoolExecutor had. The executor's worker was non-daemon, so a
+    lane wedged past its wall still held the whole process at interpreter
+    exit (the run reported done, then hung forever joining the worker -
+    the visible 'crash'). Daemon threads cannot hold the process; the
+    abandoned lane dies with it."""
+
+    def __init__(self):
+        self._q: "queue.SimpleQueue" = queue.SimpleQueue()
+        self._t = threading.Thread(target=self._run, daemon=True)
+        self._t.start()
+
+    def _run(self):
+        while True:
+            fn, args, kwargs, box = self._q.get()
+            if fn is None:
+                return
+            try:
+                box["res"] = fn(*args, **kwargs)
+            except BaseException as e:  # noqa: BLE001 - recorded, not raised
+                box["err"] = e
+            finally:
+                box["done"].set()
+
+    def submit(self, fn, *args, **kwargs):
+        box = {"done": threading.Event()}
+        self._q.put((fn, args, kwargs, box))
+        return _WallFuture(box)
+
+    def shutdown(self, wait=False, cancel_futures=False):
+        self._q.put((None, (), {}, {"done": threading.Event()}))
+
+
+class _WallFuture:
+    def __init__(self, box):
+        self._box = box
+
+    def result(self, timeout=None):
+        if not self._box["done"].wait(timeout):
+            raise TimeoutError("lane wall elapsed")
+        if "err" in self._box:
+            raise self._box["err"]
+        return self._box.get("res")
+
+
+def _wall_thread_pool():
+    return _WallThreadPool()
+
 
 _LANE_ADD_SHAPES = (
     ("local", re.compile(r"^local:\s*[1-9]\d* results")),
@@ -504,7 +557,9 @@ class ResearchScraperBridge:
         except Exception:
             return False
 
-    def _instance_preflight(self, proxy_res: Dict[str, Any]) -> Dict[str, Any]:
+    def _instance_preflight(self, proxy_res: Dict[str, Any],
+                            deadline: Optional[float] = None
+                            ) -> Dict[str, Any]:
         """PRE-FLIGHT PING: at the start of a deep
         run, before the first public-instance probe, the run pings its
         candidate instance pool on /healthz. Candidates: up to the
@@ -531,6 +586,11 @@ class ResearchScraperBridge:
                 alive: List[str] = []
                 dead: List[str] = []
                 for i, _base in enumerate(candidates):
+                    if (deadline is not None
+                            and time.time() + _PREFLIGHT_TIMEOUT_S > deadline):
+                        out["clipped"] = len(candidates) - i
+                        candidates = candidates[:i]
+                        break
                     if i:
                         time.sleep(_PREFLIGHT_GAP_S)
                     if self._preflight_ping(_base, proxy_res):
@@ -543,6 +603,10 @@ class ResearchScraperBridge:
                     out["line"] = (f"instance preflight: "
                                    f"alive {len(alive)} of "
                                    f"{len(candidates)} tried")
+                    if out.get("clipped"):
+                        out["line"] += (f" (clipped by the run wall; "
+                                        f"{out['clipped']} candidates "
+                                        f"untried)")
                 if callable(_pin):
                     _pin(alive)
         except Exception as _pf_err:
@@ -560,7 +624,8 @@ class ResearchScraperBridge:
                         language: str = "",
                         engines: Optional[List[str]] = None,
                         search_proxy: Optional[str] = None,
-                        floor_hunt_left: Optional[int] = None) -> Dict[str, Any]:
+                        floor_hunt_left: Optional[int] = None,
+                        wall_s: Optional[float] = None) -> Dict[str, Any]:
         """Research-oriented search. The SearXNG manager itself now runs the
         automatic ladder (local -> searx.space -> direct keyless); this adds a
         merge of the searx_fallback ladder when local results come back thin
@@ -583,10 +648,19 @@ class ResearchScraperBridge:
         upper rungs either way and only extends the budget when this is
         above 0."""
         search_q = _strip_connectives(query) or query
+        # the lane wall rides down into every sub-lane so pacing and
+        # browser waits can never outrun the lane's own budget
+        _wall = float(wall_s) if wall_s and float(wall_s) > 0 else None
+        _t_lane = time.time()
+        _left = (lambda: (_wall - (time.time() - _t_lane))
+                 if _wall is not None else None)
         search_result = self.searxng_manager.search(
             query=search_q, category=category, max_results=max_results,
             time_range=time_range, language=language, engines=engines,
-            search_proxy=search_proxy, floor_hunt_left=floor_hunt_left)
+            search_proxy=search_proxy, floor_hunt_left=floor_hunt_left,
+            max_seconds=(max(5.0, min(60.0, _left()))
+                         if _left() is not None and _left() < 60.0
+                         else 60.0))
 
         ladder = list(search_result.get("ladder") or [])
         results = list(search_result.get("results") or [])
@@ -594,8 +668,17 @@ class ResearchScraperBridge:
         if len(results) < _THIN_RESULTS_THRESHOLD:
             try:
                 import searx_fallback as _sf
+                _budget = os.environ.get(
+                    "GREYSEARCH_INSTANCE_BUDGET_S", "15")
+                try:
+                    _budget = float(_budget)
+                except (TypeError, ValueError):
+                    _budget = 15.0
+                if _left() is not None:
+                    _budget = min(_budget, max(5.0, _left()))
                 lad = _sf.search(query, max_results=max_results,
-                                 engines=engines, search_proxy=search_proxy)
+                                 engines=engines, search_proxy=search_proxy,
+                                 budget_s=_budget)
                 if lad.get("ok") and lad.get("results"):
                     have = {r.get("url") for r in results}
                     fresh = [r for r in lad["results"] if r.get("url") not in have]
@@ -737,10 +820,18 @@ class ResearchScraperBridge:
         score (snippet length is not a signal). Optional kwargs only, so
         frozen importers are unaffected."""
         proxy_res = _proxy_mode.prepared(search_proxy)
-        _preflight = self._instance_preflight(proxy_res)
         start_time = time.time()
         deadline = start_time + float(max_total_seconds)
         _budget = float(max_total_seconds)
+        # the preflight pings are part of the run: they used to run BEFORE
+        # the clock started, so a 12-candidate sweep (up to ~8 s each) was
+        # up to ~96 s of pure silence before the budget even began (owner
+        # crash incident 2026-11-23). Now it gets a quarter of the run's
+        # wall, never more than 30 s, and a clipped sweep is recorded
+        # honestly instead of silently skipped.
+        _preflight_deadline = time.time() + min(0.25 * _budget, 30.0)
+        _preflight = self._instance_preflight(proxy_res,
+                                              deadline=_preflight_deadline)
         search_deadline = start_time + _budget * 0.55
         scrape_deadline = start_time + _budget * 0.85
         page_cap = int(max_pages) if max_pages and max_pages > 0 else DEFAULT_MAX_PAGES
@@ -821,8 +912,7 @@ class ResearchScraperBridge:
                 if _lane_rec.get("ok"):
                     search_plan.append({**_lane_rec, "replayed": True})
                     continue
-                _sw = __import__("concurrent.futures", fromlist=["x"])
-                _search_pool = _sw.ThreadPoolExecutor(max_workers=1)
+                _search_pool = _wall_thread_pool()
                 try:
                     _sfut = _search_pool.submit(
                         self.research_search, _lq, category=_cat,
@@ -854,8 +944,7 @@ class ResearchScraperBridge:
         else:
             for i, eq in enumerate(entity_queries):
                 cat_i = cats[0] if (cats and i == 0) else "general"
-                _sw = __import__("concurrent.futures", fromlist=["x"])
-                _search_pool = _sw.ThreadPoolExecutor(max_workers=1)
+                _search_pool = _wall_thread_pool()
                 # per-lane wall = the flat 240s cap, but never more than the
                 # run's remaining SEARCH budget (+15s grace): a lane that
                 # burns its full 240s must not also eat the time the next
@@ -920,8 +1009,7 @@ class ResearchScraperBridge:
                                                "extra scrapes)"]})
                 continue
             try:
-                _pw2 = __import__("concurrent.futures", fromlist=["x"])
-                _pin_pool = _pw2.ThreadPoolExecutor(max_workers=1)
+                _pin_pool = _wall_thread_pool()
                 _pin_ident: List[int] = []
 
                 def _pin_job() -> Dict[str, Any]:
@@ -1214,7 +1302,7 @@ class ResearchScraperBridge:
                               "search_proxy": (proxy_res.get("mode") or "off"),
                               "plan": _plan_slim,
                               "results": _pool_slim})
-        for result in ordered:
+        for _pool_idx, result in enumerate(ordered):
             if result["url"] in _seed_urls:
                 # This pool entry was read and judged in the earlier
                 # attempt; its record replays from runs/pages, nothing is
@@ -1268,8 +1356,7 @@ class ResearchScraperBridge:
                                           f"after {_scrape_wedges} wedges "
                                           "this run (no forced browser respawn)"})
                 continue
-            _sw2 = __import__("concurrent.futures", fromlist=["x"])
-            _scrape_pool = _sw2.ThreadPoolExecutor(max_workers=1)
+            _scrape_pool = _wall_thread_pool()
             _worker_ident: List[int] = []
 
             def _scrape_job() -> Dict[str, Any]:
@@ -1296,7 +1383,19 @@ class ResearchScraperBridge:
             try:
                 _wall_fut = _scrape_pool.submit(_scrape_job)
                 try:
-                    scrape_result = _wall_fut.result(timeout=scrape_wall_s)
+                    # the fixed per-page wall (100s) must never outlive the
+                    # run's own scrape deadline - otherwise a wedged lane
+                    # burns the run's last minute while the caller waits
+                    # (owner crash incident 2026-11-23). The window is also
+                    # SHARED: one slow page gets at most its fair slice of
+                    # the remaining scrape time, so a single 100s fetch
+                    # cannot starve the other candidates to "time budget
+                    # reached" (incident 2026-11-23, rmg.co.uk page).
+                    scrape_result = _wall_fut.result(timeout=min(
+                        scrape_wall_s,
+                        max(30.0,
+                            (scrape_deadline - time.time())
+                            / max(1, len(ordered) - _pool_idx))))
                 except Exception as _wall_err:
                     is_timeout = "timed out" in str(_wall_err) or \
                         "TimeoutError" in type(_wall_err).__name__
@@ -1933,11 +2032,12 @@ def research_search(query: str,
                     time_range: str = "",
                     language: str = "",
                     engines: Optional[List[str]] = None,
-                    search_proxy: Optional[str] = None) -> Dict[str, Any]:
+                    search_proxy: Optional[str] = None,
+                    wall_s: Optional[float] = None) -> Dict[str, Any]:
     return get_bridge().research_search(
         query, category=category, max_results=max_results,
         time_range=time_range, language=language, engines=engines,
-        search_proxy=search_proxy)
+        search_proxy=search_proxy, wall_s=wall_s)
 
 def research_deep(question: str,
                   categories: Optional[List[str]] = None,

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "greysearch"
-version = "0.9.4"
+version = "0.9.5"
 description = "Local-first autonomous web research pipeline: search ladder, headless browsing, relevance gating, and a Flask portal."
 readme = "README.md"
 requires-python = ">=3.13"

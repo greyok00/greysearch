@@ -758,7 +758,7 @@ def _deep_bridge():
 
     bridge.research_search = _search
     bridge.research_scrape = _scrape
-    bridge._instance_preflight = lambda proxy_res: {"alive": [],
+    bridge._instance_preflight = lambda proxy_res, deadline=None: {"alive": [],
                                                     "line": "", "tried": 0}
     bridge.excluded_domains = set()
     bridge.sites_data = {"categories": {}}
