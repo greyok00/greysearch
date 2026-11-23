@@ -86,6 +86,7 @@ except ImportError:
     import browser_ports
 
 import proxy_mode as _proxy_mode
+import fp_shield as _fp_shield
 
 try:
     from .patchright_scraper import (
@@ -538,7 +539,10 @@ def _connection() -> Dict[str, Any]:
         pw = sync_playwright().start()
     browser = pw.chromium.connect_over_cdp(cdp_url())
     ctx = browser.contexts[0] if browser.contexts else browser.new_context()
-    page = ctx.pages[0] if ctx.pages else ctx.new_page()
+    _fp_shield.install_on_context(ctx)
+    _pages = getattr(ctx, "pages", None)
+    page = _pages[0] if _pages else ctx.new_page()
+    _fp_shield.apply_page(page)
     conn = {"key": key, "pw": pw, "browser": browser, "ctx": ctx, "page": page}
     with _CONN_LOCK:
         _CONNECTIONS[ident] = conn
@@ -547,6 +551,54 @@ def _connection() -> Dict[str, Any]:
 def page() -> Any:
     """The shared page on the slot browser (reuse, never close)."""
     return _connection()["page"]
+
+
+def _new_shielded_page(conn: Dict[str, Any]) -> Any:
+    """Create a page the shield plugin will actually cover.
+
+    The shield extension injects only into targets created through the
+    browser-level CDP Target.createTarget (verified 2026-11-23); pages made
+    through a patchright client context miss it. So: create the target raw,
+    then adopt whichever new page object the attached playwright context
+    picked up. Falls back to the plain playwright page on any failure.
+    """
+    ctx = conn["ctx"]
+    known = set(id(p) for p in getattr(ctx, "pages", []))
+    tid = None
+    try:
+        import json as _json
+        import websocket as _ws
+        meta = _json.loads(urllib.request.urlopen(
+            cdp_url() + "/json/version", timeout=5).read())
+        raw = _ws.create_connection(meta["webSocketDebuggerUrl"],
+                                    suppress_origin=True, timeout=10)
+        raw.send(_json.dumps({"id": 1, "method": "Target.createTarget",
+                              "params": {"url": "about:blank"}}))
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            r = _json.loads(raw.recv())
+            if r.get("id") == 1:
+                tid = (r.get("result") or {}).get("targetId")
+                break
+        raw.close()
+    except Exception:
+        tid = None
+    page = None
+    if tid:
+        deadline = time.time() + 5
+        while time.time() < deadline and page is None:
+            time.sleep(0.2)
+            for p in getattr(ctx, "pages", []):
+                if id(p) not in known:
+                    page = p
+                    break
+    if page is None:
+        page = ctx.new_page()
+    try:
+        _fp_shield.apply_page(page)
+    except Exception:
+        pass
+    return page
 
 def browser() -> Any:
     """The shared browser handle (attach-only, never close)."""
@@ -653,7 +705,7 @@ def fetch_text(url: str, max_chars: Optional[int] = None,
     """
     started = time.time()
     conn = _connection()
-    pg = conn["ctx"].new_page()
+    pg = _new_shielded_page(conn)
     try:
         pg.set_default_timeout(60000)
     except Exception:

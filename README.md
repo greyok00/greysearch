@@ -8,7 +8,7 @@
 
 GreySearch runs a complete research pass on your machine: it searches, renders pages in a real headless browser, filters noise, and writes a Master Guide with a source behind every claim.
 
-[![Version](https://img.shields.io/badge/version-0.9.3-2f6f5e)](pyproject.toml)
+[![Version](https://img.shields.io/badge/version-0.9.4-2f6f5e)](pyproject.toml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.13%2B-informational)](pyproject.toml)
 [![Platform](https://img.shields.io/badge/platform-Linux-1a1a2e)](#requirements)
@@ -72,7 +72,31 @@ on its own.
 
 ### 2. Fetch and render
 
-Each result URL is loaded in an isolated headless Chromium session. The page is
+Each result URL is loaded in an isolated headless Chromium session.
+
+**The browser presents an ordinary profile.** Every search and page read runs
+inside an isolated browser slot, and every slot is dressed to look like a
+normal laptop rather than a robot:
+
+- **A real browser.** Slots run the same Chromium a desktop would - on the
+  page-facing side the browser presents as a current Windows Chrome.
+- **A consistent identity.** One identity per slot for its whole life: the
+  same user agent, platform and client hints on every visit, because a
+  browser whose fingerprint changes from page to page is itself a red flag.
+  Search lanes and page fetches send the same identity.
+- **A normal machine surface.** The slot reports a desktop processor count,
+  no battery status, and integrated Intel graphics for WebGL - so the
+  machine it describes is the machine a real visitor would have.
+- **Windows fonts.** On a machine without them, greysearch installs the
+  freely redistributable Microsoft core fonts (Arial, Times New Roman,
+  Verdana and friends) into the user's font folder on first launch, so pages
+  render with the same typefaces a Windows PC would use. The license notice
+  is printed at install time; nothing is bundled in the download.
+
+The point is durability, not deception for its own sake: fetches fail less
+when the browser they come from looks and behaves like the browsers websites
+already serve every day. Rate limits and pauses between requests are
+respected; timeouts and blocks are reported, never guessed. The page is
 allowed to execute JavaScript, then the rendered DOM is captured. Rate limits
 and pauses between requests are respected; timeouts and blocks are reported,
 never guessed. A wedged page load counts against a per-run wedge counter —

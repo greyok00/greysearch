@@ -138,7 +138,11 @@ def test_owner_instances_lead_the_browser_lane():
     out = si._owner_first(["https://zz.example", "https://search.hbubli.cc/"])
     assert out == ["https://search.hbubli.cc",
                    "https://searx.ononoki.org", "https://zz.example"]
-    assert sf._owner_first_urls(["https://zz.example"]) == out
+    # sf's browser-lane pins now lead with the self-hosted slot instance and
+    # are folded with the caller's urls (identity law: one pinned order)
+    expected = list(sf._OWNER_BROWSER_BASES) + ["https://zz.example"]
+    assert sf._owner_first_urls(["https://zz.example"]) == expected
+    assert sf._owner_first_urls(["https://search.lumy.live"]) == list(sf._OWNER_BROWSER_BASES)
 
 
 def test_floor_engages_upper_rungs_and_names_the_advisory(monkeypatch):
@@ -304,7 +308,7 @@ def test_browser_lane_keeps_cookies_and_owner_first(monkeypatch):
     res = sf.browser_search_public(_QUERY, max_results=10)
     assert res == []
     assert cleared == []
-    assert visits[:2] == ["search.hbubli.cc", "searx.ononoki.org"]
+    assert visits[:2] == [u.split("//", 1)[1] for u in list(sf._OWNER_BROWSER_BASES)[:2]]
     records = sf.google_lane_records() + sf.bing_lane_records()
     assert len(records) == 2
     assert all(r.find("browser: failed/bound-out") != -1 for r in records)

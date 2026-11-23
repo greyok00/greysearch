@@ -207,7 +207,12 @@ def _local_alive(base_url: str, timeout: float = 15.0) -> Optional[bool]:
     _LOCAL_ALIVE_AT[base_url] = now
     return ok
 
-_UA_HEADERS = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/151 Safari/537.36",
+try:
+    import fp_shield as _fp_shield_ua
+    _UA_WIN = _fp_shield_ua.WINDOWS_UA
+except Exception:
+    _UA_WIN = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36"
+_UA_HEADERS = {"User-Agent": _UA_WIN,
                "Accept": "application/json"}
 _LOCAL_ALIVE: Dict[str, Any] = {}
 _LOCAL_ALIVE_AT: Dict[str, float] = {}
@@ -1276,7 +1281,7 @@ class SearXNGEngineManager:
                         try:
                             browsed = _bf.result(timeout=float(
                                 os.environ.get("GREYSEARCH_BROWSER_JOIN_S")
-                                or 150.0))
+                                or 540.0))
                         finally:
                             _bw.shutdown(wait=False)
                     except Exception as e:

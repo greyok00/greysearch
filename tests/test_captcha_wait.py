@@ -437,8 +437,8 @@ def test_sf_browser_lane_persist_holds_attempt(monkeypatch):
     _sf_lane(monkeypatch, pg)
     assert sf.browser_search_public("gardens", timeout=1) == []
     holds = sf._captcha_holds()
-    assert holds == [_PERSISTED_MARK, _PERSISTED_MARK]
-    assert pg.sleeps_ms.count(1000) == 4
+    assert holds == [_PERSISTED_MARK, _PERSISTED_MARK, _PERSISTED_MARK]
+    assert pg.sleeps_ms.count(1000) == 6
     assert pg.sleeps_ms[:5] == [2000, 8000, 1000, 1000, 2000]
 
 
@@ -462,7 +462,7 @@ def test_sf_browser_lane_solved_proceeds(monkeypatch):
     holds = sf._captcha_holds()
     assert len(holds) == 1
     assert _SOLVED_RE.match(holds[0])
-    base = "https://search.hbubli.cc"
+    base = list(sf._OWNER_BROWSER_BASES)[0]
     assert _LAST_DEBUG_CAPTCHA(base) and holds[0] == _LAST_DEBUG_CAPTCHA(base)
 
 
@@ -845,7 +845,7 @@ def test_sf_browser_lane_solver_lifts_base(monkeypatch):
     assert calls == ["detect", "solve"]
     holds = sf._captcha_holds()
     assert holds == [_PERSISTED_MARK, f"captcha_solved: {_SOLVED_NOTE}"]
-    assert _LAST_DEBUG_CAPTCHA("https://search.hbubli.cc") == (
+    assert _LAST_DEBUG_CAPTCHA(list(sf._OWNER_BROWSER_BASES)[0]) == (
         "captcha: solver waited 0s (solved)")
     assert pg.sleeps_ms.count(1000) == 3
 
@@ -864,13 +864,11 @@ def test_sf_browser_lane_solver_no_resolve_holds_with_skip_note(monkeypatch):
     _sf_lane(monkeypatch, pg)
     calls = _solver_calls(monkeypatch, _SKIPPED_RES)
     assert sf.browser_search_public("gardens", timeout=1) == []
-    assert calls == ["detect", "solve", "detect", "solve"]
-    base = "https://search.hbubli.cc"
-    assert _LAST_DEBUG_CAPTCHA(base) == _PERSISTED_MARK
+    assert calls == ["detect", "solve"] * 3
+    assert _LAST_DEBUG_CAPTCHA(list(sf._OWNER_BROWSER_BASES)[0]) == _PERSISTED_MARK
     holds = sf._captcha_holds()
-    assert holds == [_PERSISTED_MARK, f"captcha_skip: {_SKIP_NOTE}",
-                     _PERSISTED_MARK, f"captcha_skip: {_SKIP_NOTE}"]
-    assert pg.sleeps_ms.count(1000) == 4
+    assert holds == ([_PERSISTED_MARK, f"captcha_skip: {_SKIP_NOTE}"] * 3)
+    assert pg.sleeps_ms.count(1000) == 6
 
 
 def test_sf_browser_lane_solver_off_holds_zero_calls(monkeypatch):
@@ -885,4 +883,4 @@ def test_sf_browser_lane_solver_off_holds_zero_calls(monkeypatch):
     calls = _solver_calls(monkeypatch, _SOLVED_RES)
     assert sf.browser_search_public("gardens", timeout=1) == []
     assert calls == []
-    assert sf._captcha_holds() == [_PERSISTED_MARK, _PERSISTED_MARK]
+    assert sf._captcha_holds() == [_PERSISTED_MARK, _PERSISTED_MARK, _PERSISTED_MARK]

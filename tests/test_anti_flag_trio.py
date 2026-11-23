@@ -166,23 +166,25 @@ def test_pace_records_landed_for_instance_bases(monkeypatch):
     box, sleeps = _clock(monkeypatch)
     pg = cw._SfPage([cw.CLEAR])
     cw._sf_lane(monkeypatch, pg)
-    bs._BROWSER_PACE_AT["https://search.hbubli.cc"] = box["t"]
+    _first = list(sf._OWNER_BROWSER_BASES)[0]
+    bs._BROWSER_PACE_AT[_first] = box["t"]
     assert sf.browser_search_public("gardens", timeout=1) == []
+    _first = list(sf._OWNER_BROWSER_BASES)[0]
     assert sf.pace_wait_records() == [
-        "searx.space browser: pace wait 30s before https://search.hbubli.cc"]
-    dbg = (sf._LAST_BROWSER_DEBUG.get("https://search.hbubli.cc") or {})
+        f"searx.space browser: pace wait 30s before {_first}"]
+    dbg = (sf._LAST_BROWSER_DEBUG.get(_first) or {})
     assert dbg.get("pace_waited_s") == 30.0
     assert sleeps.count(30.0) == 1
     assert bs.browser_pace_at()["https://search.hbubli.cc"] == 100.0
     assert sf.browser_search_public("gardens", timeout=1) == []
     assert sf.pace_wait_records() == [
-        "searx.space browser: pace wait 30s before https://search.hbubli.cc",
-        "searx.space browser: pace wait 30s before https://searx.ononoki.org"]
-    assert sleeps.count(30.0) == 5
+        f"searx.space browser: pace wait 30s before {b}"
+        for b in list(sf._OWNER_BROWSER_BASES)]
+    assert sleeps.count(30.0) == 6
     monkeypatch.setenv("GREYSEARCH_BROWSER_PACE_S", "0")
     assert sf.browser_search_public("gardens", timeout=1) == []
     assert sf.pace_wait_records() == []
-    assert sleeps.count(30.0) == 5
+    assert sleeps.count(30.0) == 6
 
 
 def test_pace_records_reach_the_rung_lanes(monkeypatch):

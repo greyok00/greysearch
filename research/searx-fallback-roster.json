@@ -1,16 +1,354 @@
 {
+ "harvested": "2026-11-22",
  "instances": [
+  "https://search.pi.vps.pw/",
+  "https://searx.linxx.net/",
+  "https://searx.ononoki.org/",
+  "https://searxng.deggo.fyi/",
   "https://anonsearch.win/",
-  "https://baresearch.org/",
   "https://etsi.me/",
-  "https://failsearx.culturanerd.it/",
   "https://kantan.cat/",
-  "https://opnxng.com/",
-  "https://paulgo.io/",
   "https://priv.au/",
+  "https://search.pereira.is/",
+  "https://search.rhscz.eu/"
+ ],
+ "records": {
+  "https://anonsearch.win/": {
+   "fails": 2,
+   "probed": "2026-11-22T22:22:16",
+   "ms": 605,
+   "results": null,
+   "error": "HTTP Error 429: Too Many Requests",
+   "json_api": false,
+   "verdict": "429"
+  },
+  "https://etsi.me/": {
+   "fails": 2,
+   "probed": "2026-11-22T22:22:17",
+   "ms": 750,
+   "results": null,
+   "error": "HTTP Error 429: TOO MANY REQUESTS",
+   "json_api": false,
+   "verdict": "429"
+  },
+  "https://kantan.cat/": {
+   "fails": 2,
+   "probed": "2026-11-22T22:22:18",
+   "ms": 905,
+   "results": null,
+   "error": "HTTP Error 429: TOO MANY REQUESTS",
+   "json_api": false,
+   "verdict": "429"
+  },
+  "https://priv.au/": {
+   "fails": 2,
+   "probed": "2026-11-22T22:22:19",
+   "ms": 919,
+   "results": null,
+   "error": "HTTP Error 429: Too Many Requests",
+   "json_api": false,
+   "verdict": "429"
+  },
+  "https://search.chocolatemoo53.com/": {
+   "fails": 4,
+   "probed": "2026-11-22T22:21:33",
+   "ms": 556,
+   "results": null,
+   "error": "Expecting value: line 1 column 1 (char 0)",
+   "json_api": false,
+   "verdict": "dead"
+  },
+  "https://search.hbubli.cc/": {
+   "fails": 4,
+   "probed": "2026-11-22T22:21:34",
+   "ms": 889,
+   "results": null,
+   "error": "Expecting value: line 1 column 1 (char 0)",
+   "json_api": false,
+   "verdict": "dead"
+  },
+  "https://search.inetol.net/": {
+   "fails": 4,
+   "probed": "2026-11-22T22:21:35",
+   "ms": 855,
+   "results": null,
+   "error": "Expecting value: line 1 column 1 (char 0)",
+   "json_api": false,
+   "verdict": "dead"
+  },
+  "https://search.pereira.is/": {
+   "fails": 2,
+   "probed": "2026-11-22T22:22:20",
+   "ms": 978,
+   "results": null,
+   "error": "HTTP Error 429: Too Many Requests",
+   "json_api": false,
+   "verdict": "429"
+  },
+  "https://search.pi.vps.pw/": {
+   "fails": 2,
+   "probed": "2026-11-22T22:22:13",
+   "ms": 1008,
+   "results": null,
+   "error": "HTTP Error 403: Forbidden",
+   "json_api": false,
+   "verdict": "botwall"
+  },
+  "https://search.rhscz.eu/": {
+   "fails": 2,
+   "probed": "2026-11-22T22:22:21",
+   "ms": 1066,
+   "results": null,
+   "error": "HTTP Error 429: Too Many Requests",
+   "json_api": false,
+   "verdict": "429"
+  },
+  "https://search.serpensin.com/": {
+   "fails": 4,
+   "probed": "2026-11-22T22:21:39",
+   "ms": 853,
+   "results": null,
+   "error": "Expecting value: line 1 column 1 (char 0)",
+   "json_api": false,
+   "verdict": "dead"
+  },
+  "https://search.utilibre.org/": {
+   "fails": 2,
+   "probed": "2026-11-22T22:21:58",
+   "ms": 929,
+   "results": null,
+   "error": "HTTP Error 429: Too Many Requests",
+   "json_api": false,
+   "verdict": "429"
+  },
+  "https://search.yuri.llc/": {
+   "fails": 2,
+   "probed": "2026-11-22T22:21:58",
+   "ms": 556,
+   "results": null,
+   "error": "HTTP Error 429: Too Many Requests",
+   "json_api": false,
+   "verdict": "429"
+  },
+  "https://search.zina.dev/": {
+   "fails": 2,
+   "probed": "2026-11-22T22:21:59",
+   "ms": 902,
+   "results": null,
+   "error": "HTTP Error 429: Too Many Requests",
+   "json_api": false,
+   "verdict": "429"
+  },
+  "https://searx.linxx.net/": {
+   "fails": 2,
+   "probed": "2026-11-22T22:22:14",
+   "ms": 876,
+   "results": null,
+   "error": "HTTP Error 403: Forbidden",
+   "json_api": false,
+   "verdict": "botwall"
+  },
+  "https://searx.oloke.xyz/": {
+   "fails": 2,
+   "probed": "2026-11-22T22:21:43",
+   "ms": 910,
+   "results": null,
+   "error": "HTTP Error 429: Too Many Requests",
+   "json_api": false,
+   "verdict": "429"
+  },
+  "https://searx.ononoki.org/": {
+   "fails": 2,
+   "probed": "2026-11-22T22:22:15",
+   "ms": 870,
+   "results": null,
+   "error": "HTTP Error 403: Forbidden",
+   "json_api": false,
+   "verdict": "botwall"
+  },
+  "https://searx.rhscz.eu/": {
+   "fails": 2,
+   "probed": "2026-11-22T22:21:45",
+   "ms": 1050,
+   "results": null,
+   "error": "HTTP Error 429: Too Many Requests",
+   "json_api": false,
+   "verdict": "429"
+  },
+  "https://searx.tiekoetter.com/": {
+   "fails": 2,
+   "probed": "2026-11-22T22:21:46",
+   "ms": 1077,
+   "results": null,
+   "error": "HTTP Error 429: Too Many Requests",
+   "json_api": false,
+   "verdict": "429"
+  },
+  "https://searxng.deggo.fyi/": {
+   "fails": 2,
+   "probed": "2026-11-22T22:22:16",
+   "ms": 923,
+   "results": null,
+   "error": "HTTP Error 418: I'm a teapot",
+   "json_api": false,
+   "verdict": "botwall"
+  },
+  "https://searxng.eshnetwork.space/": {
+   "fails": 2,
+   "probed": "2026-11-22T22:21:47",
+   "ms": 570,
+   "results": null,
+   "error": "HTTP Error 429: Too Many Requests",
+   "json_api": false,
+   "verdict": "429"
+  },
+  "https://searxng.shreven.org/": {
+   "fails": 4,
+   "probed": "2026-11-22T22:21:48",
+   "ms": 708,
+   "results": null,
+   "error": "Expecting value: line 1 column 1 (char 0)",
+   "json_api": false,
+   "verdict": "dead"
+  },
+  "https://shrt.win/": {
+   "fails": 2,
+   "probed": "2026-11-22T22:21:49",
+   "ms": 900,
+   "results": null,
+   "error": "HTTP Error 429: Too Many Requests",
+   "json_api": false,
+   "verdict": "429"
+  },
+  "https://sx.xo.st/": {
+   "fails": 2,
+   "probed": "2026-11-22T22:21:50",
+   "ms": 923,
+   "results": null,
+   "error": "HTTP Error 429: Too Many Requests",
+   "json_api": false,
+   "verdict": "429"
+  },
+  "https://www.isci.si/": {
+   "fails": 2,
+   "probed": "2026-11-22T22:21:51",
+   "ms": 924,
+   "results": null,
+   "error": "HTTP Error 429: Too Many Requests",
+   "json_api": false,
+   "verdict": "429"
+  },
+  "https://xka.cz/": {
+   "fails": 1,
+   "probed": "2026-11-22T22:19:52",
+   "ms": 1083,
+   "results": null,
+   "error": "HTTP Error 429: TOO MANY REQUESTS",
+   "json_api": false
+  },
+  "https://search.jeremyh.xyz/": {
+   "fails": 1,
+   "probed": "2026-11-22T22:19:53",
+   "ms": 1260,
+   "results": null,
+   "error": "Expecting value: line 1 column 1 (char 0)",
+   "json_api": false
+  },
+  "https://searx.sev.monster/": {
+   "fails": 1,
+   "probed": "2026-11-22T22:19:54",
+   "ms": 661,
+   "results": null,
+   "error": "HTTP Error 418: I'm a teapot",
+   "json_api": false
+  },
+  "https://sx.catgirl.cloud/": {
+   "fails": 1,
+   "probed": "2026-11-22T22:19:55",
+   "ms": 1373,
+   "results": null,
+   "error": "Expecting value: line 1 column 1 (char 0)",
+   "json_api": false
+  },
+  "https://searx.dresden.network/": {
+   "fails": 1,
+   "probed": "2026-11-22T22:19:56",
+   "ms": 1023,
+   "results": null,
+   "error": "HTTP Error 429: Too Many Requests",
+   "json_api": false
+  },
+  "https://paulgo.io/": {
+   "fails": 1,
+   "probed": "2026-11-22T22:19:57",
+   "ms": 1058,
+   "results": null,
+   "error": "HTTP Error 429: Too Many Requests",
+   "json_api": false
+  },
+  "https://search.banke.cloud/": {
+   "fails": 1,
+   "probed": "2026-11-22T22:19:58",
+   "ms": 901,
+   "results": null,
+   "error": "HTTP Error 429: Too Many Requests",
+   "json_api": false
+  },
+  "https://search.undertale.uk/": {
+   "fails": 1,
+   "probed": "2026-11-22T22:20:00",
+   "ms": 2147,
+   "results": null,
+   "error": "HTTP Error 403: Forbidden",
+   "json_api": false
+  },
+  "https://searx.perennialte.ch/": {
+   "fails": 1,
+   "probed": "2026-11-22T22:20:01",
+   "ms": 601,
+   "results": null,
+   "error": "HTTP Error 403: Forbidden",
+   "json_api": false
+  },
+  "https://search.privacyredirect.com/": {
+   "fails": 1,
+   "probed": "2026-11-22T22:20:02",
+   "ms": 874,
+   "results": null,
+   "error": "HTTP Error 403: Forbidden",
+   "json_api": false
+  }
+ },
+ "reserve": [
+  "https://search.utilibre.org/",
+  "https://search.yuri.llc/",
+  "https://search.zina.dev/",
+  "https://searx.oloke.xyz/",
+  "https://searx.rhscz.eu/",
+  "https://searx.tiekoetter.com/",
+  "https://searxng.eshnetwork.space/",
+  "https://shrt.win/",
+  "https://sx.xo.st/",
+  "https://www.isci.si/",
+  "https://xka.cz/",
+  "https://search.jeremyh.xyz/",
+  "https://searx.sev.monster/",
+  "https://sx.catgirl.cloud/",
+  "https://searx.dresden.network/",
+  "https://paulgo.io/",
   "https://search.banke.cloud/",
-  "https://search.femboy.ad/",
+  "https://search.undertale.uk/",
+  "https://searx.perennialte.ch/",
+  "https://search.privacyredirect.com/",
+  "https://search.chocolatemoo53.com/",
   "https://search.hbubli.cc/",
-  "https://search.inetol.net/"
+  "https://search.inetol.net/",
+  "https://search.serpensin.com/",
+  "https://search.utilibre.org/",
+  "https://search.yuri.llc/",
+  "https://search.zina.dev/",
+  "https://searx.oloke.xyz/",
+  "https://searx.rhscz.eu/",
+  "https://searx.tiekoetter.com/"
  ]
 }

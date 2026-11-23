@@ -35,7 +35,11 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict
 
-UA = "Mozilla/5.0 (X11; Linux x86_64; rv:151.0) Gecko/20100101 Firefox/151.0"
+try:
+    import fp_shield as _fp_shield_ua
+    UA = _fp_shield_ua.WINDOWS_UA
+except Exception:
+    UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36"
 COMMONS = "https://commons.wikimedia.org/w/api.php"
 OPENVERSE = "https://api.openverse.org/v1/images/"
 

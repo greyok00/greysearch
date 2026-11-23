@@ -16,7 +16,13 @@ try:
 except Exception:
     _tuning = None
 
-UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/151 Safari/537.36"}
+try:
+    import fp_shield as _fp_shield_ua
+    UA = {"User-Agent": _fp_shield_ua.WINDOWS_UA,
+          "Accept-Language": "en-US,en;q=0.9"}
+except Exception:
+    UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+          "Accept-Language": "en-US,en;q=0.9"}
 SEARX_SPACE = "https://searx.space"
 SEARX_SPACE_DATA = "https://searx.space/data/instances.json"
 ROSTER_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "research", "searx-fallback-roster.json")
@@ -589,7 +595,7 @@ def _enable_all_engines(page, base_url):
     except Exception:
         return 0, False
 
-_OWNER_BROWSER_BASES = ("https://search.hbubli.cc", "https://searx.ononoki.org")
+_OWNER_BROWSER_BASES = ("https://search.lumy.live", "https://search.hbubli.cc", "https://searx.ononoki.org")
 
 def _owner_first_urls(urls):
     """The two priority instances ALWAYS lead the browser-lane base order; the

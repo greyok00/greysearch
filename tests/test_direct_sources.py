@@ -661,7 +661,10 @@ def test_module_defaults_are_the_documented_ones():
     assert ds.ROWS_MAX_DEFAULT == 40
     assert ds.SITEMAP_MAX_DEFAULT == 500
     assert ds.CATALOG_MAX_DEFAULT == 12
-    assert ds.USER_AGENT.find("polite") > 0
+    # identity law 2026-11-23: the direct lane sends the same Windows UA as
+    # the browser lanes, so every lane shares one identity
+    import fp_shield
+    assert ds.USER_AGENT == fp_shield.WINDOWS_UA
     assert ds.CATALOG_ENV == "GREYSEARCH_SITE_CATALOG"
 
 

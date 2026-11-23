@@ -195,7 +195,7 @@ _WAYBACK_LOCK = _th.Lock()
 
 _WAYBACK_UA = {"User-Agent":
                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-               "Chrome/151 Safari/537.36"}
+               "Chrome/156 Safari/537.36"}
 
 def _wayback_once(url: str) -> bool:
     """ONE availability consult + one archived fetch per dead URL per

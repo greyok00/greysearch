@@ -57,8 +57,11 @@ import urllib.request
 from typing import Any, Callable, Dict, List, Optional
 from xml.etree import ElementTree
 
-USER_AGENT = ("Mozilla/5.0 (X11; Linux x86_64) greysearch-direct/1.0 "
-              "(direct catalog tier; polite)")
+try:
+    import fp_shield as _fp_shield_ua
+    USER_AGENT = _fp_shield_ua.WINDOWS_UA
+except Exception:
+    USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36")
 FEED_PATHS = ("/feed", "/rss", "/atom.xml", "/sitemap.xml", "/feed.xml")
 CATALOG_KINDS = ("rss", "sitemap", "forum", "page")
 CATALOG_TIER = "direct-catalog"

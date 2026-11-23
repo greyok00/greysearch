@@ -27,7 +27,11 @@ from image_gate import (STOCK_ALT_RE, shared_junk_reason)
 import urllib.request
 from pathlib import Path
 
-UA = ("Mozilla/5.0 (X11; Linux x86_64; rv:151.0) Gecko/20100101 Firefox/151.0")
+try:
+    import fp_shield as _fp_shield_ua
+    UA = _fp_shield_ua.WINDOWS_UA
+except Exception:
+    UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36")
 
 KIT_SRC = Path(os.environ.get("GREYOK_KIT_DIR",
                               Path(__file__).resolve().parent
@@ -590,7 +594,7 @@ def theme_options(theme: str = "master") -> str:
         out.append(f'<option value="{th}"{sel}>{label}</option>')
     return "".join(out)
 
-KIT_THEMES = ["master", "neutral", "polaroid", "cockpit", "cockpit-paper",
+KIT_THEMES = ["obsidian", "master", "neutral", "polaroid", "cockpit", "cockpit-paper",
               "console", "compact", "casebook", "agent-paper", "agent-pulse",
               "agent-history", "terminal", "swiss",
               "bespoke", "torque", "umami", "aurora"]
