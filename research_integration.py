@@ -1869,6 +1869,7 @@ class ResearchScraperBridge:
             "search_ladder": list(search_ladder),
             "instance_preflight": _preflight,
             "pages_fetched": accepted,
+            "search_pool": _pool_slim,
             "quarantined_pages": quarantined,
             "rejected_pages": rejected,
             "all_scraped_pages": scraped,

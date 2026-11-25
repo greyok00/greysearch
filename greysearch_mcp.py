@@ -91,6 +91,9 @@ except Exception:
 import pipeline_sites as pipeline
 
 DEFAULT_MAX_RESULTS = 10
+MAX_RESULTS_HARD_CAP = 40
+_TIER_CAPS = {"brief": (3, 240.0), "standard": (4, 300.0),
+              "deep": (6, 420.0), "report": (16, 900.0)}
 _LINKS_PER_PAGE_IN_RESPONSE = 150
 _THIN_FILL_LIMIT = 5
 _THIN_FILL_BUDGET_S = 90.0
@@ -253,7 +256,7 @@ TOOLS = [
                 "scrape_all": {"type": "boolean",
                                "description": "true (default) = full deep run with scraping + Master Guide; false = search-only, ranked sources"},
                 "max_results": {"type": "integer",
-                                "description": "Max pages scraped in a deep run (default 10, hard max 25)"},
+                                "description": "Max pages scraped in a deep run (default 10, hard max 40)"},
                 "categories": {"type": "array", "items": {"type": "string"},
                                "description": "Optional SearXNG categories (news/it/science/…; unknown ones are normalized to general)"},
                 "write_guide_to": {"type": "string",
@@ -263,7 +266,7 @@ TOOLS = [
                 "max_seconds": {"type": "number",
                                 "description": "Wall-clock budget for the whole deep run (default 300)"},
                 "tier": {"type": "string", "enum": ["brief", "standard", "deep", "report"],
-                         "description": "Run tier: brief 3/240s, standard 4/300s, deep 6/420s, report 8/540s (pages/seconds). Explicit max_results/max_seconds always win."},
+                         "description": "Run tier: brief 3/240s, standard 4/300s, deep 6/420s, report 16/900s (pages/seconds). Explicit max_results/max_seconds always win."},
                 "search_proxy": {"type": "string",
                                  "enum": ["off", "on"],
                                  "description": "Manual search-proxy mode (SEARCHES only; page scrapes stay direct in every mode). off (default): search lanes explicitly bypass ambient HTTP(S)_PROXY. on: external search lanes ride the proxy from the deployed environment file; the env override GREYSEARCH_SEARCH_PROXY accepts the same values and wins when set."},
@@ -1569,7 +1572,8 @@ def dispatch(name: str, args: dict) -> dict:
                     "error": str(ve),
                     "accepted": list(_proxy_mode.VALID_MODES)}
 
-        max_results = max(1, min(int(args.get("max_results", DEFAULT_MAX_RESULTS)), 25))
+        max_results = max(1, min(int(args.get("max_results", DEFAULT_MAX_RESULTS)),
+                                 MAX_RESULTS_HARD_CAP))
         categories = args.get("categories")
         pinned = args.get("pinned_sources") or []
         if pinned and not isinstance(pinned, list):
@@ -1597,8 +1601,6 @@ def dispatch(name: str, args: dict) -> dict:
 
         budget = float(args.get("max_seconds", 300.0))
         _TIER = str(args.get("tier") or "").strip().lower()
-        _TIER_CAPS = {"brief": (3, 240.0), "standard": (4, 300.0),
-                      "deep": (6, 420.0), "report": (8, 540.0)}
         if _TIER in _TIER_CAPS:
             _tp, _tb = _TIER_CAPS[_TIER]
             if "max_results" not in args:
