@@ -43,6 +43,8 @@ MASTER_GUIDE_TEMPLATE = """# {title}
 
 > **Executive Brief:** {executive_brief}
 
+{findings_md}
+
 ---
 
 ## 1. Deep-Dive Overview & Context
@@ -215,6 +217,80 @@ def _md_table(table: Dict[str, Any]) -> str:
     if table.get("caption"):
         lines.append(f"\n*{table['caption']}*")
     return "\n".join(lines)
+
+
+def _pool_url_map(result: Dict[str, Any]) -> Dict[str, Dict[str, str]]:
+    """url -> pool entry map from result["search_pool"] (the ranked
+    candidate pool the deep result carries). Older result dicts without
+    the pool map to {}."""
+    out: Dict[str, Dict[str, str]] = {}
+    for e in (result.get("search_pool") or []):
+        u = str(e.get("url") or "")
+        if u:
+            out[u] = e
+    return out
+
+
+_SEARCH_INDEX_HEAD = "\n## Search index — all ranked leads\n"
+
+def render_search_index(result: Dict[str, Any]) -> str:
+    """The run's full ranked candidate pool as a lead list: every URL the
+    search lanes surfaced with its title, snippet, domain, tier and engine,
+    in ranked order. Accepted pages are marked; unscraped leads stay leads.
+    This is the data the guide used to throw away."""
+    pool = result.get("search_pool") or []
+    if not pool:
+        return (_SEARCH_INDEX_HEAD
+                + "\nNo ranked lead pool recorded for this run.\n")
+    accepted = {p.get("url") for p in (result.get("pages_fetched") or [])}
+    lines = [_SEARCH_INDEX_HEAD,
+             "\nEvery ranked search lead this run surfaced, in ranked "
+             "order — including pages never scraped. Verify before "
+             "trusting.\n"]
+    for i, e in enumerate(pool, 1):
+        title = (str(e.get("title") or "")[:140] or "(untitled)")
+        snip = str(e.get("snippet") or "")[:200]
+        dom = str(e.get("domain") or "")[:80]
+        tier = str(e.get("tier") or "")[:40]
+        eng = str(e.get("engine") or "")[:40]
+        mark = " ✅ accepted this run" if e.get("url") in accepted else ""
+        meta = " · ".join(m for m in (dom, tier, eng) if m)
+        lines.append(f"- [{i}] {title}: {snip}"
+                     + (f" *({meta})*" if meta else "")
+                     + f" — {e.get('url')}{mark}")
+    return "\n".join(lines) + "\n"
+
+
+def _top_passages_md(clean: Dict[str, Any], question: str, n: int = 4) -> str:
+    """Top n source-grounded passages for one accepted page, ranked by the
+    deterministic sentence ranker against the run question. Rendered text
+    only — no model, no invention."""
+    try:
+        import dossier as _dossier
+        body = str(clean.get("body_text") or "")
+        if len(body) < 200:
+            return ""
+        sents = [s for s in _dossier._sentences(body)
+                 if not _CHROME_LINE.search(s)]
+        top = _dossier.rank_sentences(sents,
+                                      _dossier.question_tokens(question))[:n]
+        kept = [s for s in top if len(s) >= 40]
+        if not kept:
+            return ""
+        return ("**Key passages:**\n"
+                + "\n".join(f"> {s}" for s in kept) + "\n")
+    except Exception:
+        return ""
+
+
+def _outline_md(clean: Dict[str, Any]) -> str:
+    """The page's own heading outline (h1 + up to 8 h2s), one line."""
+    h1 = str(clean.get("h1") or "")[:120]
+    h2s = [str(h)[:90] for h in (clean.get("h2s") or [])[:8] if str(h).strip()]
+    parts = ([h1] if h1 else []) + h2s
+    if not parts:
+        return ""
+    return "**Outline:** " + " · ".join(parts) + "\n"
 
 def _clean_prose(text: str) -> str:
     """Strip CSS/attribute noise while PRESERVING paragraph structure."""
@@ -677,15 +753,29 @@ def publish(title: str,
             steps: List[Dict[str, str]],
             sources: List[Dict[str, str]],
             extra_images: Optional[List[Dict[str, str]]] = None,
-            write_to: Optional[str] = None) -> str:
-    """Render a Master Guide; `write_to` writes the .md file and returns md."""
+            write_to: Optional[str] = None,
+            prose_cap: Optional[int] = None,
+            chapters_md: Optional[str] = None) -> str:
+    """Render a Master Guide; `write_to` writes the .md file and returns md.
+    `prose_cap` overrides the per-section prose cap (report tier: 80,000);
+    `chapters_md` is pre-rendered model-composed findings markdown placed
+    right after the executive brief (empty string renders nothing)."""
+    if prose_cap:
+        for sec in breakdown_sections:
+            sec.setdefault("prose_cap", prose_cap)
     b_parts: List[str] = []
     for sec in breakdown_sections:
         heading = (sec.get("heading") or "Source").replace("\n", " ")
         b_parts.append(f"### {heading}\n")
-        prose = _cap_section_prose(_trim_leading_nav(_clean_prose(sec.get("prose", ""))))
+        prose = _cap_section_prose(
+            _trim_leading_nav(_clean_prose(sec.get("prose", ""))),
+            cap=(sec.get("prose_cap") or BREAKDOWN_PROSE_CAP))
         if prose:
             b_parts.append(prose + "\n\n")
+        if sec.get("outline_md"):
+            b_parts.append(sec["outline_md"] + "\n\n")
+        if sec.get("passages_md"):
+            b_parts.append(sec["passages_md"] + "\n\n")
         for img in _content_images(sec.get("images", []) or []):
             if img.get("src"):
                 b_parts.append(f"![{img.get('alt') or heading[:60]}]({img['src']})\n")
@@ -760,6 +850,7 @@ def publish(title: str,
     rendered = MASTER_GUIDE_TEMPLATE.format(
         title=title,
         executive_brief=_clean_prose(executive_brief).strip() or f"{NOT_CAPTURED}.",
+        findings_md=(chapters_md or "").strip(),
         overview=_clean_prose(overview).strip(),
         breakdown="\n\n".join(b_parts).strip(),
         comparative="\n\n".join(c_parts).strip() if c_parts else
@@ -775,7 +866,9 @@ def publish_from_greysearch(title: str,
                             executive_brief: Optional[str],
                             greysearch_result: Dict[str, Any],
                             write_to: Optional[str] = None,
-                            output_spec: Optional[Dict[str, Any]] = None) -> str:
+                            output_spec: Optional[Dict[str, Any]] = None,
+                            tier: Optional[str] = None,
+                            question: Optional[str] = None) -> str:
     """Build the Master Guide from a greysearch result. Full per-page text goes
     to section 2 exactly once (no §2/§4 duplication); overview and brief are
     synthesized from the run's findings; steps only from real procedures.
@@ -808,6 +901,9 @@ def publish_from_greysearch(title: str,
         pages.append(p)
 
     rr = greysearch_result.get("run_report") or {}
+    _cap = 80_000 if (tier or "").strip().lower() == "report" else None
+    _q = (question or (greysearch_result.get("question") or ""))[:400]
+    _pool_map = _pool_url_map(greysearch_result)
     skipped_pages = rr.get("skipped_pages")
     if skipped_pages is None:
         skipped_pages = ([(q if isinstance(q, dict) else {"url": str(q)})
@@ -821,8 +917,15 @@ def publish_from_greysearch(title: str,
         decision = s.get("decision") or "skipped"
         reason = s.get("reason") or ""
         if url:
-            skipped_notes.append(f"- **{decision}**: {url}"
-                                 + (f" ({reason})" if reason else ""))
+            bullet = f"- **{decision}**: {url}" \
+                + (f" ({reason})" if reason else "")
+            _pe = _pool_map.get(url)
+            if _pe:
+                _pt = (str(_pe.get("title") or "")[:140]
+                       or "(untitled)")
+                _ps = str(_pe.get("snippet") or "")[:200]
+                bullet += f" — *{_pt} — {_ps}*"
+            skipped_notes.append(bullet)
 
     for page in pages:
         heading = (page.get("title") or page.get("url") or "Untitled")[:140]
@@ -841,9 +944,11 @@ def publish_from_greysearch(title: str,
                           r"advertisement|\bad\b|social|share)",
                           (im.get("alt") or "") + " " + (im.get("src") or ""))]
         images = _content_images(images)
-        breakdown_sections.append({
+        _sec = {
             "heading": heading,
             "prose": prose,
+            "outline_md": _outline_md(clean),
+            "passages_md": _top_passages_md(clean, _q),
             "images": images,
             "links": page.get("links", []),
             "tables": tables,
@@ -854,7 +959,10 @@ def publish_from_greysearch(title: str,
             "canvases": page.get("canvases", []),
             "iframes": page.get("iframes", []),
             "source_url": page.get("url", ""),
-        })
+        }
+        if _cap:
+            _sec["prose_cap"] = _cap
+        breakdown_sections.append(_sec)
         for t in page.get("tables", []) or []:
             if t.get("rows"):
                 comparative_tables.append(t)
@@ -938,8 +1046,9 @@ def publish_from_greysearch(title: str,
                   + md[_m.start(1):])
         else:
             md = md.rstrip() + "\n\n---\n\n" + limitations_md + "\n"
-        if write_to:
-            _atomic_write_text(write_to, md)
+    md = md.rstrip() + "\n" + render_search_index(greysearch_result)
+    if write_to:
+        _atomic_write_text(write_to, md)
     return md
 
 if __name__ == "__main__":
