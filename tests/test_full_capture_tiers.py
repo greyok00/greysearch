@@ -86,3 +86,60 @@ def test_deep_result_carries_ranked_search_pool(monkeypatch):
         assert entry["url"].startswith("https://example.one/lead-")
     # ranked order preserved: the first pool entry is lead 0
     assert pool[0]["url"].endswith("lead-0")
+
+
+def test_thin_fill_results_join_the_ranked_pool(monkeypatch):
+    """A run rescued by the fill lane keeps the fill's leads: every fresh
+    fill row lands in result["search_pool"] in the same record shape, so
+    the guide's Search index is not empty when the main lane never ran."""
+    import searx_fallback as _sf
+    bridge = _stub_deep_bridge(monkeypatch, n_results=1)
+
+    def fake_fill_search(query=None, **kwargs):
+        return {"ok": True,
+                "source": "local:8888",
+                "results": [{"url": "https://fill.example/lead-1",
+                             "title": "Fill lead one",
+                             "content": "fill lane snippet text",
+                             "engine": "local-fill"},
+                            {"url": "https://fill.example/lead-2",
+                             "title": "Fill lead two",
+                             "content": "fill lane snippet two",
+                             "engine": "local-fill"}],
+                "search_proxy": "off", "last_error": None}
+
+    monkeypatch.setattr(_sf, "search", fake_fill_search)
+
+    def fake_scrape(url, *a, **kwargs):
+        return {"ok": True, "url": url, "final_url": url,
+                "title": "Fill page", "text": "Fill body text. " * 200,
+                "raw_text": "x", "html": "", "html_capped": False,
+                "links": [], "images": [], "videos": [], "audios": [],
+                "pdfs": [], "canvases": [], "iframes": [], "meta": {},
+                "status_code": 200, "tables": [], "headings": [],
+                "code_blocks": [], "injection_flags": [],
+                "injection_scanned": True, "elapsed_s": 0.1,
+                "scrape_transport": "scrape direct (no proxy)"}
+
+    monkeypatch.setattr(bridge, "research_scrape", fake_scrape)
+    monkeypatch.setattr(relevance_mod, "judge_available", lambda: True)
+
+    def fake_judge(question, pages):
+        return [{"decision": "accept", "relevance_score": 90,
+                 "reason": "test stub judge", "allowed_content": [],
+                 "risk_flags": []} for _ in pages]
+
+    monkeypatch.setattr(relevance_mod, "judge_pages", fake_judge)
+    res = bridge.research_deep(
+        "thin fill pool retention", max_pages=3, max_total_seconds=40,
+        enable_semantic_judge=True, search_proxy="off")
+    res["fill_lane_budget_left_s"] = 45.0
+    gm._thin_fill("thin fill pool retention", res, search_proxy=None)
+    pool = res.get("search_pool") or []
+    urls = [e.get("url") for e in pool]
+    assert "https://fill.example/lead-1" in urls
+    assert "https://fill.example/lead-2" in urls
+    for e in pool:
+        assert set(("url", "title", "snippet", "domain", "tier", "engine")) \
+            <= set(e)
+    assert any(e.get("engine") == "local-fill" for e in pool)

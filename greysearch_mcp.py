@@ -407,6 +407,33 @@ def _thin_fill(query: str, result: dict, search_proxy=None) -> None:
             have = {p["url"] for p in result.get("pages_fetched", [])}
             fresh = [r for r in lad["results"] if r.get("url") not in have]
             bridge = get_bridge()
+            # Pool retention: the fill lane's leads join the run's ranked
+            # pool (same record shape as the main lane's search_pool) so a
+            # run rescued by the fill still carries its full lead list into
+            # the guide's Search index — the fill's searches used to vanish
+            # with the lane that found them.
+            _fill_pool = result.get("search_pool") if isinstance(
+                result.get("search_pool"), list) else []
+            _fill_seen = {e.get("url") for e in _fill_pool}
+            for r in fresh:
+                _u = r.get("url") or ""
+                if not _u or _u in _fill_seen:
+                    continue
+                _fill_seen.add(_u)
+                _dom = r.get("domain") or bridge._extract_domain(_u)
+                _fill_pool.append({"url": _u,
+                                   "title": str(r.get("title") or "")[:200],
+                                   "snippet": str(r.get("content")
+                                                  or r.get("snippet")
+                                                  or "")[:300],
+                                   "domain": _dom or "",
+                                   "tier": str(r.get("tier")
+                                               or bridge._get_tier(_dom) or ""),
+                                   "engine": str(r.get("engine")
+                                                 or lad.get("source")
+                                                 or "fill")})
+            result["search_pool"] = _fill_pool[:research_bridge \
+                .SEARCH_POOL_MAX]
             # WALL LAW: the fill keeps the caller's remaining wall, capped
             # by its own budget - the lane budget the deep run recorded
             # (fill_lane_budget_left_s), not a fixed 90s, is what bounds the
