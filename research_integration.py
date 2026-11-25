@@ -69,6 +69,20 @@ SEARCH_LADDER_MAX = 20
 _PREFLIGHT_TIMEOUT_S = 5.0
 _PREFLIGHT_GAP_S = 3.0
 
+_TRANSPORT_RE = re.compile(
+    r"(?i)scrape wall|wedge|TargetClosedError|"
+    r"Target page, context or browser has been closed|scrape worker error")
+
+def _is_transport_reject(rec: Any) -> bool:
+    """True for a rejected-page record whose death was transport-shaped
+    (wall, wedge, dead browser), not a relevance/duplicate verdict. The
+    retry wave only re-attempts these: a coverage or duplicate verdict is
+    a decision, not a failure."""
+    if not isinstance(rec, dict):
+        return False
+    return (str(rec.get("decision") or "") == "reject"
+            and bool(_TRANSPORT_RE.search(str(rec.get("reason") or ""))))
+
 
 class _WallThreadPool:
     """A one-slot worker pool on a DAEMON thread with the same
@@ -1242,6 +1256,9 @@ class ResearchScraperBridge:
         budget_hit = False
         domain_counts: Dict[str, int] = {}
         canonical_seen: set = set()
+        _recovered_urls: set = set()
+        _recoveries = 0
+        _refill_tried: set = set()
 
         # Resume seeding: judged page records replayed verbatim keep
         # their verdict, their domain caps and canonical dedupe; an
@@ -1424,6 +1441,59 @@ class ResearchScraperBridge:
                                                + str(_wall_err)[:120])}
             finally:
                 _scrape_pool.shutdown(wait=False, cancel_futures=True)
+            _err_s = str(scrape_result.get("error") or "")
+            if not scrape_result.get("ok") \
+                    and "TargetClosedError" in _err_s \
+                    and result["url"] not in _recovered_urls:
+                # The browser died mid-run (TargetClosedError class). Drop
+                # the stale connection (it rebuilds lazily on the next
+                # page()) and give THIS candidate one immediate retry on a
+                # fresh one-shot pool - the candidate's pool was already
+                # shut down in the finally above. A recovery is not a
+                # wedge: the 3-strike lane counter never sees it.
+                _recovered_urls.add(result["url"])
+                _recoveries += 1
+                try:
+                    import browser_session as _bs_rec
+                    _bs_rec.drop_connection()
+                except Exception:
+                    pass
+                try:
+                    _rec_pool = _wall_thread_pool()
+                    try:
+                        _rec_fut = _rec_pool.submit(_scrape_job)
+                        scrape_result = _rec_fut.result(timeout=min(
+                            scrape_wall_s,
+                            max(30.0, max(5.0,
+                                          (scrape_deadline - time.time())))))
+                    finally:
+                        _rec_pool.shutdown(wait=False, cancel_futures=True)
+                except Exception as _rec_err:
+                    _rec_s = str(_rec_err)
+                    if "timed out" in _rec_s.lower():
+                        scrape_result = {"ok": False, "url": result["url"],
+                                         "error": ("browser recovery "
+                                                   "re-scrape timed out "
+                                                   "after a dead browser: "
+                                                   + _err_s[:80])}
+                    else:
+                        scrape_result = {"ok": False, "url": result["url"],
+                                         "error": ("browser recovery "
+                                                   "re-scrape failed after "
+                                                   "a dead browser: "
+                                                   + _err_s[:100])}
+                if not scrape_result.get("ok") and \
+                        "browser recovery" not in str(
+                            scrape_result.get("error") or ""):
+                    # the retry returned a fresh failure verdict of its own:
+                    # still mark it as a recovery outcome so the skip line
+                    # never hides that the inline retry was attempted
+                    scrape_result = {**scrape_result,
+                                     "error": ("browser recovery re-scrape "
+                                               "failed after a dead "
+                                               "browser: "
+                                               + str(scrape_result.get("error")
+                                                     or "")[:100])}
             if not scrape_result.get("ok"):
                 skipped.append({"url": result["url"], "decision": "reject",
                                 "reason": (scrape_result.get("error") or "scrape failed")[:160]})
@@ -1730,20 +1800,35 @@ class ResearchScraperBridge:
         for e in rejected_by_gate:
             rejected.append({k: e.get(k) for k in ("url", "decision", "reason")})
 
-        # SECOND-PASS REFILL: when the judge killed most of the scraped set
-        # (junk-heavy search pool burned the page cap), re-open the cap and
-        # scrape the urls that were deprioritized by cap — judged by the same
-        # semantic judge, same clean gates. Without this, a run can end with
-        # 0 accepted pages while the GOOD urls sit in skipped[].
-        if len(accepted) < max(2, (max_pages or 0) // 2):
+        # SECOND-PASS REFILL + TRANSPORT RETRY WAVE: two rescue lanes, one
+        # clean→judge pipeline. (1) REFILL: when the judge killed most of
+        # the scraped set (junk-heavy search pool burned the page cap),
+        # re-open the cap and scrape the urls that were deprioritized by
+        # cap. (2) RETRY WAVE: pages that died on the shared wall / dead
+        # browser get ONE second-wave attempt while wall remains and there
+        # is room under page_cap — the wave that keeps a slow-transport
+        # run from ending at 0 accepted pages (owner incident 2026-11-23
+        # and 2026-11-25: every candidate died on the wall, the guide was
+        # an empty shell). Judged by the same rules; reason lines say
+        # retry vs refill.
+        if len(accepted) < (max_pages or 0):
             _cap_blocked = [s["url"] for s in skipped
                             if s.get("decision") == "deprioritized"
                             and "page cap" in str(s.get("reason") or "")]
+            _wave_urls = [s["url"] for s in skipped
+                          if _is_transport_reject(s)
+                          and s.get("url") not in _refill_tried]
+            _wave_urls = _wave_urls[:max(1, (max_pages or 0) - len(accepted))]
             _refill_budget = max(60.0, (deadline - time.time()) * 0.7)
             _refill_deadline = min(scrape_deadline, time.time() + _refill_budget)
-            for _u in _cap_blocked[:max_pages * 2]:
+            for _u in _cap_blocked[:max_pages * 2] + _wave_urls:
                 if time.time() > _refill_deadline:
                     break
+                if _u in _refill_tried:
+                    continue
+                _refill_tried.add(_u)
+                _is_wave = _u in _wave_urls
+                _prefix = "retry: " if _is_wave else "refill: "
                 try:
                     _sr = self.research_scrape(_u, max_chars=max_chars_per_page
                                                if max_chars_per_page and
@@ -1751,10 +1836,10 @@ class ResearchScraperBridge:
                                                slot=slot, mode=proxy_res)
                 except Exception as _e:
                     _sr = {"ok": False, "url": _u,
-                           "error": f"refill scrape error: {str(_e)[:100]}"}
+                           "error": _prefix + f"scrape error: {str(_e)[:100]}"}
                 if not _sr.get("ok"):
                     skipped.append({"url": _u, "decision": "reject",
-                                    "reason": ("refill: " + str(_sr.get("error") or "scrape failed"))[:160]})
+                                    "reason": (_prefix + str(_sr.get("error") or "scrape failed"))[:160]})
                     continue
                 _cl = _page_clean.clean_page(_sr)
                 _canon = _cl.get("canonical_url") or _u
@@ -1768,10 +1853,13 @@ class ResearchScraperBridge:
                 if _dec2 == "accept" and ((_pg["relevance"] or {}).get("relevance_score", 0) >= (min_accept_score if min_accept_score != _relevance.ACCEPT_SCORE else 0)):
                     accepted.append(_pg)
                     skipped.append({"url": _u, "decision": "resumed",
-                                    "reason": "second-pass refill scraped+judged"})
+                                    "reason": ("retry: transport-rejected page "
+                                               "scraped+judged in second wave"
+                                               if _is_wave else
+                                               "second-pass refill scraped+judged")})
                 else:
                     rejected.append({"url": _u, "decision": _dec2,
-                                     "reason": "refill: " + _cap_reason(((_pg['relevance'] or {}).get('reason') or 'judge reject'))[:120]})
+                                     "reason": _prefix + _cap_reason(((_pg['relevance'] or {}).get('reason') or 'judge reject'))[:120]})
 
         judged_map = {p["url"]: (p.get("relevance") or {}) for p in accepted}
         accepted = _relevance.rank_results(question, accepted, judged=judged_map)
@@ -1839,6 +1927,7 @@ class ResearchScraperBridge:
             "search_ladder": list(search_ladder),
             "instance_preflight": _preflight,
             "candidate_count": len(_all_candidates),
+            "browser_recoveries": int(_recoveries),
             "scraped_count": len(scraped),
             "accepted_count": len(accepted),
             "quarantined_count": len(quarantined),
@@ -1870,6 +1959,7 @@ class ResearchScraperBridge:
             "instance_preflight": _preflight,
             "pages_fetched": accepted,
             "search_pool": _pool_slim,
+            "browser_recoveries": int(_recoveries),
             "quarantined_pages": quarantined,
             "rejected_pages": rejected,
             "all_scraped_pages": scraped,
