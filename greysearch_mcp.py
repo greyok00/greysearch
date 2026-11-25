@@ -648,12 +648,13 @@ def _refresh_run_report(result: dict) -> None:
 
 def _execute_deep(query: str, categories: Optional[List[str]],
                   max_results: int, budget: float, pinned=None,
-                  search_proxy=None, progress=None) -> dict:
+                  search_proxy=None, progress=None, tier: str = "") -> dict:
     result = research_deep(query, categories=categories, max_pages=max_results,
                            max_total_seconds=budget,
                            pinned_sources=list(pinned or []),
                            search_proxy=search_proxy,
                            progress_cb=progress)
+    result["tier"] = tier
     if len(result.get("pages_fetched", [])) < 3:
         # thin-fill is a rescue lane, not a second run: a deep call's total
         # wall stays ~budget + fill budget. Owner incident 05:34: fill+
@@ -951,7 +952,8 @@ def _write_curation(result: dict, query: str, write_path: Path) -> Optional[Path
     cpath.write_text(json.dumps(payload, indent=1, default=str), encoding="utf-8")
     return cpath
 
-def _attach_guide(result: dict, query: str, write_path: Path) -> dict:
+def _attach_guide(result: dict, query: str, write_path: Path,
+                  tier: str = "") -> dict:
     output_spec = None
     try:
         import llm_audit as _la
@@ -1009,6 +1011,22 @@ def _attach_guide(result: dict, query: str, write_path: Path) -> dict:
         result["llm_audit"] = {"used": False, "policy": _policy,
                                "reason": f"stage error: {str(_ae)[:120]}"}
 
+    chapters_md = ""
+    try:
+        import llm_audit as _compose
+        chapters, creason = _compose.compose_chapters(
+            query, result.get("pages_fetched") or [], tier=(tier or ""))
+        result["llm_compose"] = {"chapters": len(chapters), "reason": creason}
+        if chapters:
+            chapters_md = ("## Long-form findings (model-composed)\n\n"
+                           "Model-written summary of the accepted sources; "
+                           "verify against the full texts below.\n\n"
+                           + "\n\n".join(f"### {c['heading']}\n\n{c['text']}"
+                                         for c in chapters))
+    except Exception as _ce:
+        result["llm_compose"] = {"chapters": 0,
+                                 "reason": f"compose stage error: "
+                                           f"{str(_ce)[:100]}"}
     try:
         from greysearch_publisher import publish_from_greysearch
         md = publish_from_greysearch(
@@ -1016,7 +1034,10 @@ def _attach_guide(result: dict, query: str, write_path: Path) -> dict:
             executive_brief=None,
             greysearch_result=result,
             write_to=str(write_path),
-            output_spec=output_spec)
+            output_spec=output_spec,
+            tier=tier,
+            question=query,
+            chapters_md=chapters_md)
         result["master_guide"] = {
             "path": str(write_path),
             "chars": len(md),
@@ -1105,16 +1126,17 @@ def _guarded_url_scrape(url: str):
 
 def _inline_deep(query: str, categories, max_results: int, budget: float,
                  write_path: Path, slot_note: str, pinned=None,
-                 search_proxy=None):
+                 search_proxy=None, tier: str = ""):
     """background=false deep run, still on the dispatcher thread."""
     if not _DEEP_LOCK.acquire(blocking=False):
         return {"busy": True}
     try:
         result = _execute_deep(query, categories, max_results, budget,
-                               pinned=pinned, search_proxy=search_proxy)
+                               pinned=pinned, search_proxy=search_proxy,
+                               tier=tier)
     finally:
         _DEEP_LOCK.release()
-    return _attach_guide(result, query, write_path)
+    return _attach_guide(result, query, write_path, tier=tier)
 
 _TASK_RE = re.compile(r"^(?:task-)?([1-9][0-9]{0,3})$", re.IGNORECASE)
 
@@ -1431,7 +1453,8 @@ def _slot_map() -> Dict[str, dict]:
 
 def _deep_worker(run_id: str, query: str, categories: Optional[List[str]],
                  max_results: int, budget: float, write_path: Path,
-                 slot_note: str, pinned=None, search_proxy=None) -> None:
+                 slot_note: str, pinned=None, search_proxy=None,
+                 tier: str = "") -> None:
     started = time.time()
     _set_run(run_id, search_proxy=str(search_proxy or "off"))
     if not _DEEP_LOCK.acquire(blocking=True, timeout=2.0):
@@ -1442,7 +1465,7 @@ def _deep_worker(run_id: str, query: str, categories: Optional[List[str]],
     try:
         _watch = ThreadPoolExecutor(max_workers=1, thread_name_prefix="deepwatch")
         _sub = _watch.submit(_execute_deep, query, categories, max_results,
-                             budget, pinned, search_proxy)
+                             budget, pinned, search_proxy, tier)
         try:
             result = _sub.result(timeout=float(budget) + 240.0)
         except _FutTimeout:
@@ -1467,7 +1490,7 @@ def _deep_worker(run_id: str, query: str, categories: Optional[List[str]],
             return
         finally:
             _watch.shutdown(wait=False)
-        result = _attach_guide(result, query, write_path)
+        result = _attach_guide(result, query, write_path, tier=tier)
         guide = result.get("master_guide") or {}
         fill = result.get("fill_lane") or {}
         rr = result.get("run_report") or {}
@@ -1614,7 +1637,7 @@ def dispatch(name: str, args: dict) -> dict:
                 return _busy_response("background=false deep run")
             fut = _BROWSER_EXEC.submit(_inline_deep, query, categories,
                                        max_results, budget, write_path,
-                                       slot_note, pinned, proxy_name)
+                                       slot_note, pinned, proxy_name, _TIER)
             try:
                 result = fut.result(timeout=float(budget) + 90)
             except _FutTimeout:
@@ -1636,7 +1659,7 @@ def dispatch(name: str, args: dict) -> dict:
                  search_proxy=proxy_name or "")
         _BROWSER_EXEC.submit(_deep_worker, run_id, query, categories,
                              max_results, budget, write_path, slot_note,
-                             pinned, proxy_name)
+                             pinned, proxy_name, _TIER)
         resp = {"ok": True, "run_id": run_id, "status": "running",
                 "started_at": _RUNS[run_id]["started_at"],
                 "guide_path": str(write_path),

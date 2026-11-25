@@ -868,7 +868,8 @@ def publish_from_greysearch(title: str,
                             write_to: Optional[str] = None,
                             output_spec: Optional[Dict[str, Any]] = None,
                             tier: Optional[str] = None,
-                            question: Optional[str] = None) -> str:
+                            question: Optional[str] = None,
+                            chapters_md: Optional[str] = None) -> str:
     """Build the Master Guide from a greysearch result. Full per-page text goes
     to section 2 exactly once (no §2/§4 duplication); overview and brief are
     synthesized from the run's findings; steps only from real procedures.
@@ -1029,6 +1030,8 @@ def publish_from_greysearch(title: str,
         steps=steps,
         sources=sources,
         write_to=write_to,
+        prose_cap=_cap,
+        chapters_md=chapters_md,
     )
     if limitations_md:
         # heading-agnostic: the sources section is located the way the
